@@ -1,5 +1,15 @@
 {
   "projects": {
     "default": "approl-ae9cb"
-  }
+  },
+  "targets": {
+    "approl-ae9cb": {
+      "hosting": {
+        "principal": [
+          "jotarolapp"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }
