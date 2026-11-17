@@ -28,4 +28,4 @@ export const TERRAINS = [
 export const TERRAIN_BY_ID = Object.fromEntries(TERRAINS.map((t) => [t.id, t]))
 
 // Contraste con texto blanco >= 4.5:1
-export const TOKEN_COLORS = ['#c0392b', '#2563eb', '#7c3aed', '#b45309', '#0f766e', '#be185d']
+export const TOKEN_COLORS = ['#0c0c0c', '#2563eb', '#7c3aed', '#b45309', '#0f766e', '#be185d']

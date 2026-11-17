@@ -1,56 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { COLS, ROWS, KIND_ORDER, KIND_LABEL, TERRAINS, TERRAIN_BY_ID, TOKEN_COLORS } from './terrains'
+import { doc, onSnapshot, setDoc, updateDoc, deleteField } from 'firebase/firestore'
+import { db } from './firebase'
+import { KIND_ORDER, KIND_LABEL, TERRAINS, TERRAIN_BY_ID, TOKEN_COLORS } from './terrains'
 import { MODIFIERS, MOD_GROUPS, MOD_BY_ID } from './modifiers'
+import { sampleMap, toDoc, fromDoc, diff, newRoomCode } from './roomData'
 import './App.css'
+import './room.css'
 
-const STORAGE_KEY = 'rol-mapas-v2'
 const GRID_SIZES = [6, 8, 10, 12, 14, 16, 18, 20, 22, 24]
-
-function sampleMap() {
-  const cells = Array(COLS * ROWS).fill('grass')
-  const mods = Array(COLS * ROWS).fill(null)
-  const put = (arr, id, list) => list.forEach(([r, c]) => {
-    if (r < ROWS && c < COLS) arr[r * COLS + c] = id
-  })
-  for (let r = 0; r < ROWS; r++) put(cells, 'river', [[r, r < 4 ? 8 : r < 8 ? 7 : 6]])
-  for (let r = 9; r <= 11; r++) for (let c = 1; c <= 3; c++) put(cells, 'water', [[r, c]])
-  for (let c = 1; c <= 5; c++) put(cells, 'cliff', [[3, c]])
-  put(cells, 'tree', [[1, 1], [1, 3], [2, 2], [5, 10], [6, 9], [7, 10], [12, 9], [12, 10], [13, 9]])
-  put(cells, 'rock', [[6, 3], [6, 4], [7, 3], [4, 10], [10, 8], [12, 2]])
-  put(cells, 'mud', [[7, 5], [7, 6], [8, 5]])
-  put(cells, 'brush', [[9, 10], [9, 11], [10, 10], [10, 11]])
-  put(cells, 'vines', [[1, 5], [2, 5]])
-  put(cells, 'sand', [[8, 10], [8, 11], [7, 11]])
-  put(cells, 'lava', [[0, 10], [0, 11], [1, 11]])
-  put(mods, 'fire', [[5, 3], [5, 4]])
-  put(mods, 'oil', [[4, 5], [5, 5]])
-  put(mods, 'ice', [[11, 4], [12, 4]])
-  put(mods, 'fog', [[7, 8], [8, 8]])
-  const tokens = TOKEN_COLORS.map((color, id) => ({
-    id,
-    color,
-    pos: id < 3 ? 13 * COLS + 3 + id : null,
-  }))
-  return { cols: COLS, rows: ROWS, cells, mods, tokens, enemies: [] }
-}
-
-function loadMap() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY))
-    const cols = saved?.cols ?? COLS
-    const rows = saved?.rows ?? ROWS
-    if (
-      Number.isInteger(cols) && Number.isInteger(rows) &&
-      cols >= 1 && rows >= 1 &&
-      saved?.cells?.length === cols * rows &&
-      saved?.mods?.length === cols * rows &&
-      saved?.tokens?.length
-    ) return { ...saved, cols, rows, enemies: Array.isArray(saved.enemies) ? saved.enemies : [] }
-  } catch {
-    // Si el guardado está dañado se usa el mapa de ejemplo.
-  }
-  return sampleMap()
-}
+let CLIENT = localStorage.getItem('rol-client')
+if (!CLIENT) localStorage.setItem('rol-client', (CLIENT = Math.random().toString(36).slice(2)))
 
 // Busca la ficha o enemigo (vivo o muerto) que está en la celda i
 const findPiece = (m, i, dead) => {
@@ -114,20 +73,89 @@ function Swatch({ kind, id, small }) {
 }
 
 export default function App() {
-  const [map, setMap] = useState(loadMap)
-  const [history, setHistory] = useState([])
-  const [mode, setMode] = useState('edit')
+  const [code, setCode] = useState(() =>
+    (new URLSearchParams(location.search).get('sala') || localStorage.getItem('rol-sala') || '').toUpperCase())
+  const [input, setInput] = useState('')
+  const [data, setData] = useState(undefined)
+
+  useEffect(() => {
+    if (!code) return
+    setData(undefined)
+    return onSnapshot(doc(db, 'rooms', code), (s) => setData(s.exists() ? s.data() : null))
+  }, [code])
+
+  const enter = (c) => {
+    c = c.trim().toUpperCase()
+    if (!c) return
+    localStorage.setItem('rol-sala', c)
+    setCode(c)
+  }
+  const leave = () => {
+    localStorage.removeItem('rol-sala')
+    history.replaceState(null, '', location.pathname)
+    setCode('')
+  }
+  const create = async () => {
+    const c = newRoomCode()
+    await setDoc(doc(db, 'rooms', c), toDoc(sampleMap(), CLIENT))
+    enter(c)
+  }
+
+  if (code && data) return <Room code={code} data={data} onLeave={leave} />
+
+  return (
+    <main className="app lobby">
+      <header className="top"><h1>Mapa de rol</h1></header>
+      {code && data === undefined && <p>Cargando sala…</p>}
+      {code && data === null && <p>La sala {code} no existe</p>}
+      {(!code || data === null) && (
+        <div className="tools">
+          <button className="tool" onClick={create}>Crear sala</button>
+          <input className="room-input" placeholder="Código" value={input}
+            onChange={(e) => setInput(e.target.value)} />
+          <button className="tool" onClick={() => enter(input)}>Entrar</button>
+        </div>
+      )}
+      {code && <button className="tool" onClick={leave}>Salir</button>}
+    </main>
+  )
+}
+
+function Room({ code, data, onLeave }) {
+  const roomRef = doc(db, 'rooms', code)
+  const isMaster = data.master === CLIENT
+  const mine = Object.keys(data.claims ?? {}).find((k) => data.claims[k] === CLIENT)
+  const myToken = mine === undefined ? null : Number(mine)
+
+  if (!isMaster && myToken === null) {
+    return (
+      <main className="app lobby">
+        <header className="top"><h1>Elegí tu ficha</h1></header>
+        <div className="tools">
+          {TOKEN_COLORS.map((_, id) => (
+            <button key={id} className="tool" disabled={!!data.claims?.[id]}
+              onClick={() => updateDoc(roomRef, { ['claims.' + id]: CLIENT })}>
+              <Swatch kind="token" id={id} />Jugador {id + 1}
+            </button>
+          ))}
+        </div>
+        <button className="tool" onClick={onLeave}>Salir</button>
+      </main>
+    )
+  }
+  return <Board roomRef={roomRef} code={code} data={data} isMaster={isMaster} myToken={myToken} onLeave={onLeave} />
+}
+
+function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
+  const map = fromDoc(data)
+  const [mode, setMode] = useState(isMaster ? 'edit' : 'play')
   const [picks, setPicks] = useState({ terrain: 'rock', mod: 'fire', token: 0, enemy: 'add' })
-  const [active, setActive] = useState('terrain')
+  const [active, setActive] = useState(isMaster ? 'terrain' : 'move')
   const [open, setOpen] = useState(null)
-  const [selected, setSelected] = useState(null)
+  const [selected, setSelected] = useState(myToken)
   const [selectedEnemy, setSelectedEnemy] = useState(null)
   const [focus, setFocus] = useState(null)
   const lastTap = useRef({ i: -1, t: 0, undo: null })
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(map))
-  }, [map])
 
   const liveToken = (i) => map.tokens.find((t) => t.pos === i && !t.dead)
   const liveEnemy = (i) => map.enemies.find((e) => e.pos === i && !e.dead)
@@ -136,8 +164,8 @@ export default function App() {
   const enemyAt = (i) => liveEnemy(i) ?? map.enemies.find((e) => e.pos === i)
 
   const change = (next) => {
-    setHistory((h) => [...h.slice(-29), map])
-    setMap(next)
+    const u = diff(map, next)
+    if (Object.keys(u).length) updateDoc(roomRef, u)
   }
 
   const resizeGrid = (dimension, value) => {
@@ -215,7 +243,7 @@ export default function App() {
     // Doble toque sobre una ficha, enemigo o cadáver: matar / revivir
     const now = Date.now()
     const last = lastTap.current
-    const isDouble = last.i === i && now - last.t < 350
+    const isDouble = isMaster && last.i === i && now - last.t < 350
     lastTap.current = { i, t: now, undo: null }
     if (isDouble && (last.undo || findPiece(map, i, false) || findPiece(map, i, true))) {
       lastTap.current = { i: -1, t: 0, undo: null }
@@ -232,6 +260,7 @@ export default function App() {
     // Una ficha o enemigo vivo se selecciona; los cadáveres no cuentan
     const enemy = liveEnemy(i)
     if (enemy) {
+      if (!isMaster) return
       setSelected(null)
       setSelectedEnemy(selectedEnemy === enemy.id ? null : enemy.id)
       return
@@ -239,6 +268,7 @@ export default function App() {
 
     const token = liveToken(i)
     if (token) {
+      if (!isMaster && token.id !== myToken) return
       setSelectedEnemy(null)
       setSelected(selected === token.id ? null : token.id)
       return
@@ -247,6 +277,7 @@ export default function App() {
     // Celda sin ficha viva (puede tener cadáveres): se puede mover a cualquier terreno
     const hasCorpse = !!findPiece(map, i, true)
     if (selected !== null) {
+      if (map.tokens[selected].dead) return
       const from = map.tokens.find((t) => t.id === selected)?.pos ?? null
       change(moveToken(selected, i))
       lastTap.current = hasCorpse ? { i, t: now, undo: { list: 'tokens', id: selected, from } } : { i: -1, t: 0, undo: null }
@@ -274,14 +305,6 @@ export default function App() {
     setOpen(null)
   }
 
-  const undo = () => {
-    if (!history.length) return
-    setMap(history[history.length - 1])
-    setHistory(history.slice(0, -1))
-    setSelected(null)
-    setSelectedEnemy(null)
-  }
-
   const clearTerrain = () => change({ ...map, cells: Array(map.cols * map.rows).fill('grass') })
   const clearMods = () => change({ ...map, mods: Array(map.cols * map.rows).fill(null) })
 
@@ -292,7 +315,7 @@ export default function App() {
     enemy: picks.enemy === 'none' ? 'Quitar enemigo' : 'Agregar enemigo',
   }
 
-  const drops = mode === 'edit' ? ['terrain', 'mod', 'token', 'enemy'] : ['mod']
+  const drops = isMaster && mode === 'edit' ? ['terrain', 'mod', 'token', 'enemy'] : ['mod']
   const placed = map.tokens.filter((t) => t.pos !== null)
   const placedEnemies = map.enemies.filter((e) => e.pos !== null)
 
@@ -300,13 +323,23 @@ export default function App() {
     <main className="app">
       <header className="top">
         <h1>Mapa de rol</h1>
-        <div className="modes">
-          <button aria-pressed={mode === 'edit'} onClick={() => switchMode('edit')}>Editar</button>
-          <button aria-pressed={mode === 'play'} onClick={() => switchMode('play')}>Jugar</button>
-        </div>
+        {isMaster && (
+          <div className="modes">
+            <button aria-pressed={mode === 'edit'} onClick={() => switchMode('edit')}>Editar</button>
+            <button aria-pressed={mode === 'play'} onClick={() => switchMode('play')}>Jugar</button>
+          </div>
+        )}
       </header>
+      <div className="room-bar">
+        <span>Sala {code}</span>
+        <span>
+          <button onClick={() => navigator.clipboard?.writeText(`${location.origin}${location.pathname}?sala=${code}`)}>Copiar link</button>
+          {!isMaster && <button onClick={() => updateDoc(roomRef, { ['claims.' + myToken]: deleteField() })}>Cambiar ficha</button>}
+          <button onClick={onLeave}>Salir</button>
+        </span>
+      </div>
 
-      {mode === 'edit' && (
+      {isMaster && mode === 'edit' && (
         <div className="grid-size">
           <label>
             Columnas
@@ -348,7 +381,7 @@ export default function App() {
               {tok && (
                 <span
                   className={`token${selected === tok.id ? ' token-selected' : ''}`}
-                  style={{ background: tok.color }}
+                  style={{ background: TOKEN_COLORS[tok.id] }}
                 >
                   {tok.id + 1}
                 </span>
@@ -371,7 +404,7 @@ export default function App() {
       {mode === 'play' && (
         <>
           <div className="chips">
-            {placed.map((tk) => (
+            {placed.filter((tk) => isMaster || tk.id === myToken).map((tk) => (
               <button
                 key={tk.id}
                 className="tool"
@@ -384,12 +417,12 @@ export default function App() {
                   setFocus(tk.pos)
                 }}
               >
-                <span className="swatch round" style={{ background: tk.color }}>{tk.id + 1}</span>
+                <span className="swatch round" style={{ background: TOKEN_COLORS[tk.id] }}>{tk.id + 1}</span>
                 Jugador {tk.id + 1}
               </button>
             ))}
           </div>
-          <div className="chips enemy-chips">
+          {isMaster && <div className="chips enemy-chips">
             {placedEnemies.map((enemy) => (
               <button
                 key={enemy.id}
@@ -407,7 +440,7 @@ export default function App() {
                 Enemigo E{enemy.id}
               </button>
             ))}
-          </div>
+          </div>}
         </>
       )}
 
@@ -452,8 +485,7 @@ export default function App() {
       )}
 
       <div className="actions">
-        <button onClick={undo} disabled={!history.length}>Deshacer</button>
-        {mode === 'edit' && <button onClick={clearTerrain}>Limpiar terreno</button>}
+        {isMaster && mode === 'edit' && <button onClick={clearTerrain}>Limpiar terreno</button>}
         <button onClick={clearMods}>Limpiar modificadores</button>
       </div>
     </main>
