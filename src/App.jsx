@@ -3,6 +3,7 @@ import { doc, onSnapshot, setDoc, updateDoc, deleteField } from 'firebase/firest
 import { db } from './firebase'
 import { KIND_ORDER, KIND_LABEL, TERRAINS, TERRAIN_BY_ID, TOKEN_COLORS } from './terrains'
 import { MODIFIERS, MOD_GROUPS, MOD_BY_ID } from './modifiers'
+import TurnBar from './Turns'
 import { EDGES, EDGE_LABEL, EdgeLayer, nearestEdge, edgeInside } from './Edges'
 import { sampleMap, toDoc, fromDoc, diff, newRoomCode } from './roomData'
 import './App.css'
@@ -372,6 +373,9 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
         </div>
       )}
 
+      {(isMaster || (data.order ?? []).length > 0) && (
+        <TurnBar map={map} order={data.order ?? []} isMaster={isMaster} onChange={(o) => updateDoc(roomRef, { order: o })} />
+      )}
       <div className="board">
       <div className="grid" style={{ '--cols': map.cols }}>
         {map.cells.map((id, i) => {

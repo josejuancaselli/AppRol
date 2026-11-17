@@ -2,6 +2,7 @@
 // o "v_fila_col" (borde izquierdo). Se dibujan en unidades de celda, siempre como borde horizontal.
 export const EDGES = ['wall', 'door', 'window', 'stairs', 'none']
 export const EDGE_LABEL = { wall: 'Pared', door: 'Puerta', window: 'Ventana', stairs: 'Escalera', none: 'Nada' }
+
 const INK = '#2b2d31'
 const SHAPES = {
   wall: <path d="M0 0H1" stroke={INK} strokeWidth=".16" strokeLinecap="square" />,

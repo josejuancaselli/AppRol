@@ -8,3 +8,15 @@
 .t-door { background: linear-gradient(#33363b 0 22%, #c98a4b 22% 78%, #33363b 78%); }
 .t-window { background: linear-gradient(#33363b 0 30%, #8fd8ff 30% 70%, #33363b 70%); }
 .t-stairs { background: repeating-linear-gradient(0deg, #8a6a3a 0 3px, #e3c88f 3px 7px); }
+
+/* Orden de turnos */
+.turns { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.turn-list { display: flex; gap: 6px; overflow-x: auto; min-height: 40px; align-items: center; }
+.turn-empty { font-size: 13px; opacity: 0.6; }
+.turn { display: flex; align-items: center; gap: 4px; min-height: 40px; padding: 0 8px; flex: none; }
+.turn:disabled { opacity: 1; }
+.turn b { font-size: 13px; }
+.turn-now { outline: 2px solid #fff; }
+.turn-dead { opacity: 0.45 !important; }
+.turn-ctl { display: flex; gap: 6px; flex: none; }
+.turn-ctl button { min-height: 36px; padding: 0 10px; border: 0; border-radius: 8px; background: var(--panel, #272c31); }
