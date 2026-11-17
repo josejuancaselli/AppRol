@@ -10,7 +10,7 @@
 .t-stairs { background: repeating-linear-gradient(0deg, #8a6a3a 0 3px, #e3c88f 3px 7px); }
 
 /* Orden de turnos */
-.turns { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
+.turns { display: flex; flex-wrap: wrap; gap: 6px; margin: 24px 0 4px; }
 .turn { display: block; border-radius: 50%; cursor: pointer; user-select: none; -webkit-user-select: none; }
 .turn-sel { outline: 2px solid #fff; outline-offset: 2px; }
 .turn-dead { opacity: 0.45; }
