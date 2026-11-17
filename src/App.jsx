@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { doc, onSnapshot, setDoc, updateDoc, deleteField } from 'firebase/firestore'
 import { db } from './firebase'
-import { KIND_ORDER, KIND_LABEL, TERRAINS, TERRAIN_BY_ID, TOKEN_COLORS } from './terrains'
+import { KIND_ORDER, KIND_LABEL, TERRAINS, TERRAIN_BY_ID, TOKEN_COLORS, tokenStyle } from './terrains'
 import { MODIFIERS, MOD_GROUPS, MOD_BY_ID } from './modifiers'
 import TurnBar from './Turns'
 import { EDGES, EDGE_LABEL, EdgeLayer, nearestEdge, edgeInside } from './Edges'
@@ -61,6 +61,7 @@ const GROUPS = {
     label: 'Enemigos',
     items: [
       { id: 'add', label: 'Agregar enemigo' },
+      { id: 'boss', label: 'Agregar jefe' },
       { id: 'none', label: 'Quitar enemigo' },
     ],
   }],
@@ -74,8 +75,8 @@ function Swatch({ kind, id, small }) {
   if (kind === 'mod') {
     return <span className={`swatch t-grass${sm}`}><span className={`m m-${id}`} /></span>
   }
-  if (kind === 'enemy') return <span className={`swatch round enemy-swatch${sm}`}>E</span>
-  return <span className={`swatch round${sm}`} style={{ background: TOKEN_COLORS[id] }}>{id + 1}</span>
+  if (kind === 'enemy') return <span className={`swatch round enemy-swatch${id === 'boss' ? ' boss' : ''}${sm}`}>{id === 'boss' ? 'J' : 'E'}</span>
+  return <span className={`swatch round${sm}`} style={tokenStyle(id)}>{id + 1}</span>
 }
 
 export default function App() {
@@ -239,9 +240,9 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
       const enemy = enemyAt(i)
       if (picks.enemy === 'none') {
         if (enemy) change(moveEnemy(enemy.id, null))
-      } else if (picks.enemy === 'add' && !enemy && !tokenAt(i)) {
+      } else if ((picks.enemy === 'add' || picks.enemy === 'boss') && !enemy && !tokenAt(i)) {
         const nextId = map.enemies.reduce((max, item) => Math.max(max, item.id), 0) + 1
-        change({ ...map, enemies: [...map.enemies, { id: nextId, pos: i }] })
+        change({ ...map, enemies: [...map.enemies, { id: nextId, pos: i, boss: picks.enemy === 'boss' }] })
       }
     }
   }
@@ -329,7 +330,7 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
     terrain: EDGE_LABEL[picks.terrain] ?? TERRAIN_BY_ID[picks.terrain].label,
     mod: picks.mod === 'none' ? 'Quitar' : MOD_BY_ID[picks.mod].label,
     token: picks.token === 'none' ? 'Quitar' : `Jugador ${picks.token + 1}`,
-    enemy: picks.enemy === 'none' ? 'Quitar enemigo' : 'Agregar enemigo',
+    enemy: { none: 'Quitar enemigo', boss: 'Agregar jefe' }[picks.enemy] ?? 'Agregar enemigo',
   }
 
   const placed = map.tokens.filter((t) => t.pos !== null)
@@ -400,14 +401,14 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
               {tok && (
                 <span
                   className={`token${selected === tok.id ? ' token-selected' : ''}`}
-                  style={{ background: TOKEN_COLORS[tok.id] }}
+                  style={tokenStyle(tok.id)}
                 >
                   {tok.id + 1}
                 </span>
               )}
               {enemy && (
-                <span className={`enemy${enemy.id >= 10 ? ' enemy-long' : ''}${selectedEnemy === enemy.id ? ' enemy-selected' : ''}`}>
-                  E{enemy.id}
+                <span className={`enemy${enemy.boss ? ' boss' : ''}${enemy.id >= 10 ? ' enemy-long' : ''}${selectedEnemy === enemy.id ? ' enemy-selected' : ''}`}>
+                  {enemy.boss ? 'J' : 'E'}{enemy.id}
                 </span>
               )}
               {(deadTok || deadEnemy) && (tok || enemy ? (
@@ -443,7 +444,7 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
                   setOpen(null)
                 }}
               >
-                <span className="swatch round" style={{ background: TOKEN_COLORS[tk.id] }}>{tk.id + 1}</span>
+                <span className="swatch round" style={tokenStyle(tk.id)}>{tk.id + 1}</span>
               </button>
             ))}
           </div>
@@ -453,7 +454,7 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
                 <button
                   key={enemy.id}
                   className="pc"
-                  aria-label={`Enemigo E${enemy.id}`}
+                  aria-label={`${enemy.boss ? 'Jefe J' : 'Enemigo E'}${enemy.id}`}
                   aria-pressed={active === 'move' && selectedEnemy === enemy.id}
                   disabled={enemy.dead}
                   onClick={() => {
@@ -464,7 +465,7 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
                     setOpen(null)
                   }}
                 >
-                  <span className="swatch round enemy-swatch">E{enemy.id}</span>
+                  <span className={`swatch round enemy-swatch${enemy.boss ? ' boss' : ''}`}>{enemy.boss ? 'J' : 'E'}{enemy.id}</span>
                 </button>
               ))}
             </div>

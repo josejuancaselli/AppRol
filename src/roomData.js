@@ -66,6 +66,7 @@ export const fromDoc = (d) => {
       id: Number(id),
       pos: e.pos ?? null,
       dead: !!e.dead,
+      boss: !!e.boss,
     })),
   }
 }
@@ -96,7 +97,7 @@ export const diff = (a, b) => {
   })
   b.enemies.forEach((e) => {
     const o = a.enemies.find((x) => x.id === e.id)
-    if (!o || e.pos !== o.pos || !!e.dead !== !!o.dead) u[`enemies.${e.id}`] = { pos: e.pos, dead: !!e.dead }
+    if (!o || e.pos !== o.pos || !!e.dead !== !!o.dead) u[`enemies.${e.id}`] = { pos: e.pos, dead: !!e.dead, boss: !!e.boss }
   })
   return u
 }

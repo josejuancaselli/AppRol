@@ -11,11 +11,10 @@
 
 /* Orden de turnos */
 .turns { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
-.turn { display: block; border-radius: 50%; }
-.turn-drag { cursor: grab; touch-action: none; }
-.turn { user-select: none; -webkit-user-select: none; }
-.turn-over { outline: 2px dashed #fff; outline-offset: 2px; }
+.turn { display: block; border-radius: 50%; cursor: pointer; user-select: none; -webkit-user-select: none; }
+.turn-sel { outline: 2px solid #fff; outline-offset: 2px; }
 .turn-dead { opacity: 0.45; }
+.enemy.boss:not(.dead), .enemy-swatch.boss { background: #000; }
 
 /* Menú de sala */
 .menu-wrap { position: relative; }

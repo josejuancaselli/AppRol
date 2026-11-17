@@ -31,4 +31,6 @@ export const TERRAINS = [
 export const TERRAIN_BY_ID = Object.fromEntries(TERRAINS.map((t) => [t.id, t]))
 
 // Contraste con texto blanco >= 4.5:1
-export const TOKEN_COLORS = ['#c0392b', '#2563eb', '#7c3aed', '#b45309', '#0f766e', '#be185d']
+// El amarillo (Jugador 1) lleva texto oscuro
+export const tokenStyle = (id) => ({ background: TOKEN_COLORS[id], color: id === 0 ? '#1a1a1a' : '#fff' })
+export const TOKEN_COLORS = ['#facc15', '#2563eb', '#7c3aed', '#b45309', '#0f766e', '#be185d']
