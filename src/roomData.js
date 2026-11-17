@@ -31,7 +31,7 @@ export function sampleMap() {
     color,
     pos: id < 3 ? 13 * COLS + 3 + id : null,
   }))
-  return { cols: COLS, rows: ROWS, cells, mods, tokens, enemies: [] }
+  return { cols: COLS, rows: ROWS, cells, mods, tokens, enemies: [], edges: {} }
 }
 
 // mapa local -> documento de Firestore
@@ -44,6 +44,7 @@ export const toDoc = (m, master) => ({
   mods: sparse(m.mods, null),
   tokens: Object.fromEntries(m.tokens.map((t) => [t.id, { pos: t.pos, dead: !!t.dead }])),
   enemies: {},
+  edges: {},
 })
 
 // documento de Firestore -> mapa local (el mismo formato que usa la pantalla)
@@ -60,6 +61,7 @@ export const fromDoc = (d) => {
       pos: d.tokens?.[id]?.pos ?? null,
       dead: !!d.tokens?.[id]?.dead,
     })),
+    edges: d.edges ?? {},
     enemies: Object.entries(d.enemies ?? {}).map(([id, e]) => ({
       id: Number(id),
       pos: e.pos ?? null,
@@ -84,6 +86,10 @@ export const diff = (a, b) => {
       if (v !== a.mods[i]) u[`mods.${i}`] = v ?? deleteField()
     })
   }
+  const ea = a.edges ?? {}
+  const eb = b.edges ?? {}
+  Object.keys(eb).forEach((k) => { if (ea[k] !== eb[k]) u[`edges.${k}`] = eb[k] })
+  Object.keys(ea).forEach((k) => { if (!(k in eb)) u[`edges.${k}`] = deleteField() })
   b.tokens.forEach((t, i) => {
     const o = a.tokens[i]
     if (t.pos !== o.pos || !!t.dead !== !!o.dead) u[`tokens.${t.id}`] = { pos: t.pos, dead: !!t.dead }

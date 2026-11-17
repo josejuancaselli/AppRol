@@ -3,9 +3,11 @@ import { doc, onSnapshot, setDoc, updateDoc, deleteField } from 'firebase/firest
 import { db } from './firebase'
 import { KIND_ORDER, KIND_LABEL, TERRAINS, TERRAIN_BY_ID, TOKEN_COLORS } from './terrains'
 import { MODIFIERS, MOD_GROUPS, MOD_BY_ID } from './modifiers'
+import { EDGES, EDGE_LABEL, EdgeLayer, nearestEdge, edgeInside } from './Edges'
 import { sampleMap, toDoc, fromDoc, diff, newRoomCode } from './roomData'
 import './App.css'
 import './room.css'
+import './edges.css'
 
 const GRID_SIZES = [6, 8, 10, 12, 14, 16, 18, 20, 22, 24]
 let CLIENT = localStorage.getItem('rol-client')
@@ -35,7 +37,10 @@ const toggleDeadIn = (m, i) => {
 const GROUPS = {
   terrain: KIND_ORDER.map((k) => ({
     label: KIND_LABEL[k],
-    items: TERRAINS.filter((t) => t.kind === k).map((t) => ({ id: t.id, label: t.label })),
+    items: [
+      ...TERRAINS.filter((t) => t.kind === k).map((t) => ({ id: t.id, label: t.label })),
+      ...(k === 'construccion' ? EDGES.map((id) => ({ id, label: EDGE_LABEL[id] })) : []),
+    ],
   })),
   mod: [
     { label: 'Sin efecto', items: [{ id: 'none', label: 'Quitar' }] },
@@ -191,7 +196,8 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
       return { ...piece, pos: row < rows && col < cols ? row * cols + col : null }
     })
 
-    change({ cols, rows, cells, mods, tokens: remapPieces(map.tokens), enemies: remapPieces(map.enemies) })
+    const edges = Object.fromEntries(Object.entries(map.edges).filter(([k]) => edgeInside(k, cols, rows)))
+    change({ cols, rows, cells, mods, edges, tokens: remapPieces(map.tokens), enemies: remapPieces(map.enemies) })
     setFocus(null)
     setSelected(null)
     setSelectedEnemy(null)
@@ -209,6 +215,7 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
 
   const applyTool = (i) => {
     if (active === 'terrain') {
+      if (EDGES.includes(picks.terrain)) return
       if (map.cells[i] === picks.terrain) return
       const cells = map.cells.slice()
       cells[i] = picks.terrain
@@ -235,6 +242,15 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
         change({ ...map, enemies: [...map.enemies, { id: nextId, pos: i }] })
       }
     }
+  }
+
+  const placeEdge = (e) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    const k = nearestEdge(((e.clientX - r.left) / r.width) * map.cols, ((e.clientY - r.top) / r.height) * map.rows, map.cols, map.rows)
+    const edges = { ...map.edges }
+    if (picks.terrain === 'none' || edges[k] === picks.terrain) delete edges[k]
+    else edges[k] = picks.terrain
+    change({ ...map, edges })
   }
 
   const playCell = (i) => {
@@ -305,11 +321,11 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
     setOpen(null)
   }
 
-  const clearTerrain = () => change({ ...map, cells: Array(map.cols * map.rows).fill('grass') })
+  const clearTerrain = () => change({ ...map, edges: {}, cells: Array(map.cols * map.rows).fill('grass') })
   const clearMods = () => change({ ...map, mods: Array(map.cols * map.rows).fill(null) })
 
   const valueLabel = {
-    terrain: TERRAIN_BY_ID[picks.terrain].label,
+    terrain: EDGE_LABEL[picks.terrain] ?? TERRAIN_BY_ID[picks.terrain].label,
     mod: picks.mod === 'none' ? 'Quitar' : MOD_BY_ID[picks.mod].label,
     token: picks.token === 'none' ? 'Quitar' : `Jugador ${picks.token + 1}`,
     enemy: picks.enemy === 'none' ? 'Quitar enemigo' : 'Agregar enemigo',
@@ -356,6 +372,7 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
         </div>
       )}
 
+      <div className="board">
       <div className="grid" style={{ '--cols': map.cols }}>
         {map.cells.map((id, i) => {
           const tok = liveToken(i)
@@ -399,6 +416,11 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
             </button>
           )
         })}
+      </div>
+      <EdgeLayer edges={map.edges} cols={map.cols} rows={map.rows} />
+      {isMaster && mode === 'edit' && active === 'terrain' && EDGES.includes(picks.terrain) && (
+        <div className="edge-hit" onClick={placeEdge} />
+      )}
       </div>
 
       {mode === 'play' && (
