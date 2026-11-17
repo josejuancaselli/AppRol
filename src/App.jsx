@@ -161,6 +161,7 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
   const [selected, setSelected] = useState(myToken)
   const [selectedEnemy, setSelectedEnemy] = useState(null)
   const [focus, setFocus] = useState(null)
+  const [menu, setMenu] = useState(false)
   const lastTap = useRef({ i: -1, t: 0, undo: null })
 
   const liveToken = (i) => map.tokens.find((t) => t.pos === i && !t.dead)
@@ -323,7 +324,6 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
   }
 
   const clearTerrain = () => change({ ...map, edges: {}, cells: Array(map.cols * map.rows).fill('grass') })
-  const clearMods = () => change({ ...map, mods: Array(map.cols * map.rows).fill(null) })
 
   const valueLabel = {
     terrain: EDGE_LABEL[picks.terrain] ?? TERRAIN_BY_ID[picks.terrain].label,
@@ -332,14 +332,22 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
     enemy: picks.enemy === 'none' ? 'Quitar enemigo' : 'Agregar enemigo',
   }
 
-  const drops = isMaster && mode === 'edit' ? ['terrain', 'mod', 'token', 'enemy'] : ['mod']
   const placed = map.tokens.filter((t) => t.pos !== null)
   const placedEnemies = map.enemies.filter((e) => e.pos !== null)
 
   return (
     <main className="app">
       <header className="top">
-        <h1>Mapa de rol</h1>
+        <div className="menu-wrap">
+          <button className="menu-btn" onClick={() => setMenu(!menu)}>Sala {code} ⋯</button>
+          {menu && (
+            <div className="menu">
+              <button onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?sala=${code}`); setMenu(false) }}>Copiar link</button>
+              {!isMaster && <button onClick={() => updateDoc(roomRef, { ['claims.' + myToken]: deleteField() })}>Cambiar ficha</button>}
+              <button onClick={onLeave}>Salir</button>
+            </div>
+          )}
+        </div>
         {isMaster && (
           <div className="modes">
             <button aria-pressed={mode === 'edit'} onClick={() => switchMode('edit')}>Editar</button>
@@ -347,14 +355,6 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
           </div>
         )}
       </header>
-      <div className="room-bar">
-        <span>Sala {code}</span>
-        <span>
-          <button onClick={() => navigator.clipboard?.writeText(`${location.origin}${location.pathname}?sala=${code}`)}>Copiar link</button>
-          {!isMaster && <button onClick={() => updateDoc(roomRef, { ['claims.' + myToken]: deleteField() })}>Cambiar ficha</button>}
-          <button onClick={onLeave}>Salir</button>
-        </span>
-      </div>
 
       {isMaster && mode === 'edit' && (
         <div className="grid-size">
@@ -373,9 +373,7 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
         </div>
       )}
 
-      {(isMaster || (data.order ?? []).length > 0) && (
-        <TurnBar map={map} order={data.order ?? []} isMaster={isMaster} onChange={(o) => updateDoc(roomRef, { order: o })} />
-      )}
+      <TurnBar map={map} order={data.order ?? []} isMaster={isMaster} onChange={(o) => updateDoc(roomRef, { order: o })} />
       <div className="board">
       <div className="grid" style={{ '--cols': map.cols }}>
         {map.cells.map((id, i) => {
@@ -428,12 +426,13 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
       </div>
 
       {mode === 'play' && (
-        <>
-          <div className="chips">
+        <div className="cols">
+          <div className="cc">
             {placed.filter((tk) => isMaster || tk.id === myToken).map((tk) => (
               <button
                 key={tk.id}
-                className="tool"
+                className="pc"
+                aria-label={`Jugador ${tk.id + 1}`}
                 aria-pressed={active === 'move' && selected === tk.id}
                 disabled={tk.dead}
                 onClick={() => {
@@ -441,79 +440,110 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
                   setSelected(tk.id)
                   setSelectedEnemy(null)
                   setFocus(tk.pos)
+                  setOpen(null)
                 }}
               >
                 <span className="swatch round" style={{ background: TOKEN_COLORS[tk.id] }}>{tk.id + 1}</span>
-                Jugador {tk.id + 1}
               </button>
             ))}
           </div>
-          {isMaster && <div className="chips enemy-chips">
-            {placedEnemies.map((enemy) => (
-              <button
-                key={enemy.id}
-                className="tool"
-                aria-pressed={active === 'move' && selectedEnemy === enemy.id}
-                disabled={enemy.dead}
-                onClick={() => {
-                  setActive('move')
-                  setSelected(null)
-                  setSelectedEnemy(enemy.id)
-                  setFocus(enemy.pos)
-                }}
-              >
-                <span className="swatch round enemy-swatch">E{enemy.id}</span>
-                Enemigo E{enemy.id}
-              </button>
-            ))}
-          </div>}
-        </>
-      )}
-
-      <div className="bar">
-        {drops.map((k) => (
-          <button
-            key={k}
-            className={`sel${active === k ? ' active' : ''}`}
-            aria-expanded={open === k}
-            onClick={() => setOpen(open === k ? null : k)}
-          >
-            <span className="sel-title">{TITLES[k]} ▾</span>
-            <span className="sel-value">
-              <Swatch kind={k} id={picks[k]} small />
-              <span className="txt">{valueLabel[k]}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-
-      {open && (
-        <div className="panel">
-          {GROUPS[open].map((g) => (
-            <section key={g.label}>
-              <h2>{g.label}</h2>
-              <div className="tools">
-                {g.items.map((it) => (
-                  <button
-                    key={it.id}
-                    className="tool"
-                    aria-pressed={picks[open] === it.id}
-                    onClick={() => pick(open, it.id)}
-                  >
-                    <Swatch kind={open} id={it.id} />
-                    {it.label}
-                  </button>
-                ))}
-              </div>
-            </section>
-          ))}
+          {isMaster ? (
+            <div className="cc">
+              {placedEnemies.map((enemy) => (
+                <button
+                  key={enemy.id}
+                  className="pc"
+                  aria-label={`Enemigo E${enemy.id}`}
+                  aria-pressed={active === 'move' && selectedEnemy === enemy.id}
+                  disabled={enemy.dead}
+                  onClick={() => {
+                    setActive('move')
+                    setSelected(null)
+                    setSelectedEnemy(enemy.id)
+                    setFocus(enemy.pos)
+                    setOpen(null)
+                  }}
+                >
+                  <span className="swatch round enemy-swatch">E{enemy.id}</span>
+                </button>
+              ))}
+            </div>
+          ) : <div />}
+          <div className="modcol">
+            <button
+              className={`sel${active === 'mod' ? ' active' : ''}`}
+              aria-expanded={open === 'mod'}
+              onClick={() => setOpen(open === 'mod' ? null : 'mod')}
+            >
+              <span className="sel-title">Modificadores {open === 'mod' ? '▴' : '▾'}</span>
+              <span className="sel-value">
+                <Swatch kind="mod" id={picks.mod} small />
+                <span className="txt">{valueLabel.mod}</span>
+              </span>
+            </button>
+          </div>
+          {open === 'mod' && (
+            <div className="modpan">
+              {GROUPS.mod.map((g) => (
+                <section key={g.label}>
+                  <h2>{g.label}</h2>
+                  <div className="tools">
+                    {g.items.map((it) => (
+                      <button key={it.id} className="tool" aria-pressed={picks.mod === it.id} onClick={() => pick('mod', it.id)}>
+                        <Swatch kind="mod" id={it.id} />
+                        {it.label}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      <div className="actions">
-        {isMaster && mode === 'edit' && <button onClick={clearTerrain}>Limpiar terreno</button>}
-        <button onClick={clearMods}>Limpiar modificadores</button>
-      </div>
+      {mode === 'edit' && (
+        <>
+          <div className="bar">
+            {['terrain', 'mod', 'token', 'enemy'].map((k) => (
+              <button
+                key={k}
+                className={`sel${active === k ? ' active' : ''}`}
+                aria-expanded={open === k}
+                onClick={() => setOpen(open === k ? null : k)}
+              >
+                <span className="sel-title">{TITLES[k]} ▾</span>
+                <span className="sel-value">
+                  <Swatch kind={k} id={picks[k]} small />
+                  <span className="txt">{valueLabel[k]}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {open && (
+            <div className="panel">
+              {GROUPS[open].map((g) => (
+                <section key={g.label}>
+                  <h2>{g.label}</h2>
+                  <div className="tools">
+                    {g.items.map((it) => (
+                      <button key={it.id} className="tool" aria-pressed={picks[open] === it.id} onClick={() => pick(open, it.id)}>
+                        <Swatch kind={open} id={it.id} />
+                        {it.label}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+
+          <div className="actions">
+            <button onClick={clearTerrain}>Limpiar terreno</button>
+          </div>
+        </>
+      )}
     </main>
   )
 }

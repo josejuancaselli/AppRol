@@ -10,13 +10,26 @@
 .t-stairs { background: repeating-linear-gradient(0deg, #8a6a3a 0 3px, #e3c88f 3px 7px); }
 
 /* Orden de turnos */
-.turns { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.turn-list { display: flex; gap: 6px; overflow-x: auto; min-height: 40px; align-items: center; }
-.turn-empty { font-size: 13px; opacity: 0.6; }
-.turn { display: flex; align-items: center; gap: 4px; min-height: 40px; padding: 0 8px; flex: none; }
-.turn:disabled { opacity: 1; }
-.turn b { font-size: 13px; }
-.turn-now { outline: 2px solid #fff; }
-.turn-dead { opacity: 0.45 !important; }
-.turn-ctl { display: flex; gap: 6px; flex: none; }
-.turn-ctl button { min-height: 36px; padding: 0 10px; border: 0; border-radius: 8px; background: var(--panel, #272c31); }
+.turns { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
+.turn { display: block; border-radius: 50%; }
+.turn-drag { cursor: grab; touch-action: none; }
+.turn { user-select: none; -webkit-user-select: none; }
+.turn-over { outline: 2px dashed #fff; outline-offset: 2px; }
+.turn-dead { opacity: 0.45; }
+
+/* Menú de sala */
+.menu-wrap { position: relative; }
+.menu-btn { min-height: 40px; padding: 0 12px; border: 0; border-radius: 10px; background: var(--panel, #272c31); color: inherit; font: inherit; font-size: 13px; }
+.menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 10; display: flex; flex-direction: column; min-width: 160px; padding: 4px; border-radius: 10px; background: #2b3137; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5); }
+.menu button { min-height: 42px; padding: 0 12px; border: 0; background: none; color: inherit; font: inherit; text-align: left; }
+
+/* Jugar: jugadores | enemigos | modificadores */
+.cols { position: relative; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; min-height: 220px; }
+.cc { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-content: start; justify-items: center; padding: 6px 2px; border-radius: 8px; background: rgba(255, 255, 255, 0.04); }
+.pc { padding: 0; border: 0; border-radius: 50%; background: none; }
+.pc[aria-pressed='true'] { outline: 2px solid #fff; outline-offset: 2px; }
+.pc:disabled { opacity: 0.45; }
+.modcol .sel { width: 100%; }
+.modpan { position: absolute; top: 0; bottom: 0; left: 0; right: calc(33.33% + 3px); z-index: 6; overflow-y: auto; padding: 6px; border-radius: 8px; background: #2b3137; box-shadow: 0 0 0 1px #3b82f6; }
+.modpan h2 { margin: 6px 0 4px; font-size: 12px; opacity: 0.7; }
+.modpan .tools { display: flex; flex-wrap: wrap; gap: 6px; }
