@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import {
-  GoogleAuthProvider, createUserWithEmailAndPassword, onAuthStateChanged,
-  signInWithEmailAndPassword, signInWithPopup, signOut,
+  EmailAuthProvider, GoogleAuthProvider, createUserWithEmailAndPassword, deleteUser, onAuthStateChanged,
+  reauthenticateWithCredential, reauthenticateWithPopup, signInWithEmailAndPassword, signInWithPopup, signOut,
 } from 'firebase/auth'
 import {
-  arrayUnion, collection, doc, getDoc, onSnapshot, query, updateDoc, where, writeBatch,
+  arrayRemove, arrayUnion, collection, deleteDoc, deleteField, doc, getDoc, getDocs, onSnapshot, query,
+  updateDoc, where, writeBatch,
 } from 'firebase/firestore'
 import { db } from './firebase'
 import { auth } from './auth'
@@ -69,7 +70,7 @@ export default function Root() {
       {user ? <Parties user={user} onOpen={open} /> : <Login />}
       <div className="tools">
         <button className="tool" onClick={() => setLoose(true)}>Sala suelta</button>
-        {user && <button className="tool" onClick={() => signOut(auth)}>Cerrar sesión</button>}
+        {user && <button className="tool" onClick={() => { open(''); signOut(auth) }}>Cerrar sesión</button>}
       </div>
     </main>
   )
@@ -133,6 +134,47 @@ function Parties({ user, onOpen }) {
     try { await batch.commit() } catch (e) { alert('Crear: ' + e.code) }
   }
 
+  const removeProfile = async () => {
+    const mine = [...list]
+    const owned = mine.filter((p) => p.ownerId === user.uid)
+    const aviso = owned.length
+      ? `Se borrarán las parties que creaste con todos sus mapas: ${owned.map((p) => p.nombre).join(', ')}.\n\n`
+      : ''
+    if (!window.confirm(`¿Borrar tu perfil definitivamente?\n\n${aviso}Saldrás de las demás parties. No se puede deshacer.`)) return
+    try {
+      // 1. volver a autenticar (Firebase lo exige para borrar la cuenta)
+      if (user.providerData[0]?.providerId === 'password') {
+        const pass = window.prompt('Confirmá tu contraseña')
+        if (!pass) return
+        await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, pass))
+      } else {
+        await reauthenticateWithPopup(user, new GoogleAuthProvider())
+      }
+      // 2. datos
+      for (const p of mine) {
+        if (p.ownerId === user.uid) {
+          const maps = await getDocs(collection(db, 'parties', p.id, 'maps'))
+          await Promise.all(maps.docs.map((d) => deleteDoc(d.ref)))
+          await deleteDoc(doc(db, 'rooms', p.id))
+          await deleteDoc(doc(db, 'invites', p.inviteCode))
+          await deleteDoc(doc(db, 'parties', p.id))
+        } else {
+          if (p.masterId === user.uid && p.sesion?.estado === 'jugando') {
+            await updateDoc(doc(db, 'rooms', p.id), { master: null }).catch(() => {})
+          }
+          await updateDoc(doc(db, 'parties', p.id), {
+            memberIds: arrayRemove(user.uid),
+            ['members.' + user.uid]: deleteField(),
+            ...(p.masterId === user.uid ? { masterId: null } : {}),
+          })
+        }
+      }
+      // 3. cuenta
+      await deleteUser(user)
+      onOpen('')
+    } catch (e) { alert('Borrar perfil: ' + e.code) }
+  }
+
   return (
     <>
       <p>{nick(user)}</p>
@@ -146,6 +188,7 @@ function Parties({ user, onOpen }) {
           onChange={(e) => setName(e.target.value)} />
         <button className="tool" disabled={!name.trim()} onClick={create}>Crear party</button>
       </div>
+      <button className="tool" onClick={removeProfile}>Borrar mi perfil</button>
     </>
   )
 }
