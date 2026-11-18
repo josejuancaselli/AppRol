@@ -128,32 +128,50 @@ export default function App() {
   )
 }
 
-function Room({ code, data, onLeave }) {
+export function Room({ code, data, onLeave, client = CLIENT, menuExtra, banner, title }) {
   const roomRef = doc(db, 'rooms', code)
-  const isMaster = data.master === CLIENT
-  const mine = Object.keys(data.claims ?? {}).find((k) => data.claims[k] === CLIENT)
+  const isMaster = data.master === client
+  const placed = (id) => data.tokens?.[id]?.pos != null
+  const mine = Object.keys(data.claims ?? {}).find((k) => data.claims[k] === client && placed(k))
   const myToken = mine === undefined ? null : Number(mine)
 
+  // el master libera las fichas tomadas cuyo jugador fue borrado del mapa
+  useEffect(() => {
+    if (!isMaster) return
+    const stale = Object.keys(data.claims ?? {}).filter((k) => !placed(k))
+    if (stale.length) {
+      updateDoc(roomRef, Object.fromEntries(stale.map((k) => ['claims.' + k, deleteField()])))
+    }
+  })
+
   if (!isMaster && myToken === null) {
+    const ids = TOKEN_COLORS.map((_, id) => id).filter(placed)
     return (
       <main className="app lobby">
         <header className="top"><h1>Elegí tu ficha</h1></header>
-        <div className="tools">
-          {TOKEN_COLORS.map((_, id) => (
-            <button key={id} className="tool" disabled={!!data.claims?.[id]}
-              onClick={() => updateDoc(roomRef, { ['claims.' + id]: CLIENT })}>
-              <Swatch kind="token" id={id} />Jugador {id + 1}
-            </button>
-          ))}
-        </div>
+        {data.abierta === false ? (
+          <p>Esperando que el master abra la sala</p>
+        ) : ids.length === 0 ? (
+          <p>El master todavía no creó fichas de jugador</p>
+        ) : (
+          <div className="tools">
+            {ids.map((id) => (
+              <button key={id} className="tool" disabled={!!data.claims?.[id]}
+                onClick={() => updateDoc(roomRef, { ['claims.' + id]: client })}>
+                <Swatch kind="token" id={id} />Jugador {id + 1}
+              </button>
+            ))}
+          </div>
+        )}
         <button className="tool" onClick={onLeave}>Salir</button>
       </main>
     )
   }
-  return <Board roomRef={roomRef} code={code} data={data} isMaster={isMaster} myToken={myToken} onLeave={onLeave} />
+  return <Board roomRef={roomRef} code={code} data={data} isMaster={isMaster} myToken={myToken}
+    onLeave={onLeave} menuExtra={menuExtra} banner={banner} title={title} />
 }
 
-function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
+function Board({ roomRef, code, data, isMaster, myToken, onLeave, menuExtra, banner, title }) {
   const map = fromDoc(data)
   const [mode, setMode] = useState(isMaster ? 'edit' : 'play')
   const [picks, setPicks] = useState({ terrain: 'rock', mod: 'fire', token: 0, enemy: 'add' })
@@ -340,10 +358,14 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
     <main className="app">
       <header className="top">
         <div className="menu-wrap">
-          <button className="menu-btn" onClick={() => setMenu(!menu)}>Sala {code} ⋯</button>
+          <button className="menu-btn" onClick={() => setMenu(!menu)}>Sala {title ?? code} ⋯</button>
           {menu && (
             <div className="menu">
-              <button onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?sala=${code}`); setMenu(false) }}>Copiar link</button>
+              {menuExtra ? (
+                <div style={{ display: 'contents' }} onClick={() => setMenu(false)}>{menuExtra}</div>
+              ) : (
+                <button onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?sala=${code}`); setMenu(false) }}>Copiar link</button>
+              )}
               {!isMaster && <button onClick={() => updateDoc(roomRef, { ['claims.' + myToken]: deleteField() })}>Cambiar ficha</button>}
               <button onClick={onLeave}>Salir</button>
             </div>
@@ -356,6 +378,8 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
           </div>
         )}
       </header>
+
+      {banner}
 
       {isMaster && mode === 'edit' && (
         <div className="grid-size">
@@ -376,54 +400,54 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
 
       <TurnBar map={map} order={data.order ?? []} isMaster={isMaster} onChange={(o) => updateDoc(roomRef, { order: o })} />
       <div className="board">
-      <div className="grid" style={{ '--cols': map.cols }}>
-        {map.cells.map((id, i) => {
-          const tok = liveToken(i)
-          const enemy = liveEnemy(i)
-          const deadTok = map.tokens.find((t) => t.pos === i && t.dead)
-          const deadEnemy = map.enemies.find((e) => e.pos === i && e.dead)
-          const mod = map.mods[i]
-          let label = `Fila ${Math.floor(i / map.cols) + 1}, columna ${(i % map.cols) + 1}: ${TERRAIN_BY_ID[id].label}`
-          if (mod) label += `, ${MOD_BY_ID[mod].label}`
-          const here = [
-            ...map.tokens.filter((t) => t.pos === i).map((t) => `jugador ${t.id + 1}${t.dead ? ' (muerto)' : ''}`),
-            ...map.enemies.filter((e) => e.pos === i).map((e) => `enemigo E${e.id}${e.dead ? ' (muerto)' : ''}`),
-          ]
-          if (here.length) label += `, ${here.join(', ')}`
-          return (
-            <button
-              key={i}
-              className={`cell t-${id}${mode === 'play' && focus === i ? ' focus' : ''}`}
-              aria-label={label}
-              onClick={() => (mode === 'edit' ? applyTool(i) : playCell(i))}
-            >
-              {mod && <span className={`m m-${mod}`} />}
-              {tok && (
-                <span
-                  className={`token${selected === tok.id ? ' token-selected' : ''}`}
-                  style={tokenStyle(tok.id)}
-                >
-                  {tok.id + 1}
-                </span>
-              )}
-              {enemy && (
-                <span className={`enemy${enemy.boss ? ' boss' : ''}${enemy.id >= 10 ? ' enemy-long' : ''}${selectedEnemy === enemy.id ? ' enemy-selected' : ''}`}>
-                  {enemy.boss ? 'J' : 'E'}{enemy.id}
-                </span>
-              )}
-              {(deadTok || deadEnemy) && (tok || enemy ? (
-                <span className="corpse-mark">†</span>
-              ) : (
-                <span className={`${deadTok ? 'token' : 'enemy'} dead`}>†</span>
-              ))}
-            </button>
-          )
-        })}
-      </div>
-      <EdgeLayer edges={map.edges} cols={map.cols} rows={map.rows} />
-      {isMaster && mode === 'edit' && active === 'terrain' && EDGES.includes(picks.terrain) && (
-        <div className="edge-hit" onClick={placeEdge} />
-      )}
+        <div className="grid" style={{ '--cols': map.cols }}>
+          {map.cells.map((id, i) => {
+            const tok = liveToken(i)
+            const enemy = liveEnemy(i)
+            const deadTok = map.tokens.find((t) => t.pos === i && t.dead)
+            const deadEnemy = map.enemies.find((e) => e.pos === i && e.dead)
+            const mod = map.mods[i]
+            let label = `Fila ${Math.floor(i / map.cols) + 1}, columna ${(i % map.cols) + 1}: ${TERRAIN_BY_ID[id].label}`
+            if (mod) label += `, ${MOD_BY_ID[mod].label}`
+            const here = [
+              ...map.tokens.filter((t) => t.pos === i).map((t) => `jugador ${t.id + 1}${t.dead ? ' (muerto)' : ''}`),
+              ...map.enemies.filter((e) => e.pos === i).map((e) => `enemigo E${e.id}${e.dead ? ' (muerto)' : ''}`),
+            ]
+            if (here.length) label += `, ${here.join(', ')}`
+            return (
+              <button
+                key={i}
+                className={`cell t-${id}${mode === 'play' && focus === i ? ' focus' : ''}`}
+                aria-label={label}
+                onClick={() => (mode === 'edit' ? applyTool(i) : playCell(i))}
+              >
+                {mod && <span className={`m m-${mod}`} />}
+                {tok && (
+                  <span
+                    className={`token${selected === tok.id ? ' token-selected' : ''}`}
+                    style={tokenStyle(tok.id)}
+                  >
+                    {tok.id + 1}
+                  </span>
+                )}
+                {enemy && (
+                  <span className={`enemy${enemy.boss ? ' boss' : ''}${enemy.id >= 10 ? ' enemy-long' : ''}${selectedEnemy === enemy.id ? ' enemy-selected' : ''}`}>
+                    {enemy.boss ? 'J' : 'E'}{enemy.id}
+                  </span>
+                )}
+                {(deadTok || deadEnemy) && (tok || enemy ? (
+                  <span className="corpse-mark">†</span>
+                ) : (
+                  <span className={`${deadTok ? 'token' : 'enemy'} dead`}>†</span>
+                ))}
+              </button>
+            )
+          })}
+        </div>
+        <EdgeLayer edges={map.edges} cols={map.cols} rows={map.rows} />
+        {isMaster && mode === 'edit' && active === 'terrain' && EDGES.includes(picks.terrain) && (
+          <div className="edge-hit" onClick={placeEdge} />
+        )}
       </div>
 
       {mode === 'play' && (
@@ -548,3 +572,14 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave }) {
     </main>
   )
 }
+
+
+// rules_version = '2';
+
+// service cloud.firestore {
+//   match /databases/{database}/documents {
+//     match /{document=**} {
+//       allow read, write: if true;
+//     }
+//   }
+// }

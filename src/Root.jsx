@@ -3,13 +3,16 @@ import {
   GoogleAuthProvider, createUserWithEmailAndPassword, onAuthStateChanged,
   signInWithEmailAndPassword, signInWithPopup, signOut,
 } from 'firebase/auth'
-import { addDoc, arrayUnion, collection, doc, getDoc, onSnapshot, query, updateDoc, where } from 'firebase/firestore'
+import {
+  arrayUnion, collection, doc, getDoc, onSnapshot, query, updateDoc, where, writeBatch,
+} from 'firebase/firestore'
 import { db } from './firebase'
 import { auth } from './auth'
 import App from './App.jsx'
 import Party from './Party.jsx'
 
 const nick = (u) => u.displayName || u.email?.split('@')[0] || 'Jugador'
+const newCode = () => crypto.randomUUID().replace(/-/g, '').slice(0, 12)
 
 export default function Root() {
   const [user, setUser] = useState(undefined)
@@ -33,18 +36,20 @@ export default function Root() {
     const inv = q.get('inv')
     if (!id) return
     history.replaceState(null, '', location.pathname)
-    getDoc(doc(db, 'parties', id)).then(async (s) => {
-      const p = s.data()
-      if (!p || p.inviteCode !== inv) return alert('Invitación no válida')
-      if (!p.memberIds.includes(user.uid)) {
-        if (p.memberIds.length >= p.max) return alert('La party está llena')
-        await updateDoc(s.ref, {
-          memberIds: arrayUnion(user.uid),
-          ['members.' + user.uid]: { nombre: nick(user) },
-        })
-      }
+    const join = async () => {
+      const already = await getDoc(doc(db, 'parties', id)).then(() => true, () => false)
+      if (already) return open(id)
+      const iv = (await getDoc(doc(db, 'invites', inv || '-'))).data()
+      if (!iv || iv.partyId !== id) return alert('Invitación no válida')
+      if (!window.confirm(`¿Querés unirte a la party "${iv.nombre}" de ${iv.creador}?`)) return
+      await updateDoc(doc(db, 'parties', id), {
+        memberIds: arrayUnion(user.uid),
+        ['members.' + user.uid]: { nombre: nick(user) },
+        joinCode: inv,
+      })
       open(id)
-    }).catch((e) => alert('Unirse: ' + e.code))
+    }
+    join().catch(() => alert('No se pudo unir: la invitación ya no es válida o la party está llena'))
   }, [user])
 
   if (loose) {
@@ -110,20 +115,22 @@ function Parties({ user, onOpen }) {
     const nombre = name.trim()
     if (!nombre) return
     setName('')
-    try {
-      await addDoc(collection(db, 'parties'), {
-        nombre,
-        ownerId: user.uid,
-        masterId: null,
-        max: 10,
-        memberIds: [user.uid],
-        members: { [user.uid]: { nombre: nick(user) } },
-        inviteCode: Math.random().toString(36).slice(2, 10),
-        sesion: { estado: 'lobby', mapId: null },
-      })
-    } catch (e) {
-      alert('Crear: ' + e.code)
-    }
+    const ref = doc(collection(db, 'parties'))
+    const code = newCode()
+    const batch = writeBatch(db)
+    batch.set(ref, {
+      nombre,
+      ownerId: user.uid,
+      masterId: null,
+      max: 10,
+      memberIds: [user.uid],
+      members: { [user.uid]: { nombre: nick(user) } },
+      inviteCode: code,
+      sesion: { estado: 'lobby', mapId: null },
+    })
+    batch.set(doc(db, 'invites', code),
+      { partyId: ref.id, ownerId: user.uid, nombre, creador: nick(user) })
+    try { await batch.commit() } catch (e) { alert('Crear: ' + e.code) }
   }
 
   return (
