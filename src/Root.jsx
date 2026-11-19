@@ -11,6 +11,7 @@ import { auth } from './auth'
 import Party from './Party.jsx'
 import Account, { nick } from './Account'
 import { Dialogs, alertBox, confirmBox } from './ui'
+import { errorText, report } from './errors.js'
 
 const newCode = () => crypto.randomUUID().replace(/-/g, '').slice(0, 12)
 
@@ -44,8 +45,9 @@ function Screens() {
     if (!id) return
     history.replaceState(null, '', location.pathname)
     const join = async () => {
-      const already = await getDoc(doc(db, 'parties', id)).then(() => true, () => false)
-      if (already) return open(id)
+      // Ya soy miembro si puedo leer la party y mi uid figura en ella
+      const mine = await getDoc(doc(db, 'parties', id)).catch(() => null)
+      if (mine?.exists() && mine.data().memberIds?.includes(user.uid)) return open(id)
       const iv = (await getDoc(doc(db, 'invites', inv || '-'))).data()
       if (!iv || iv.partyId !== id) return alertBox('La invitación no es válida.')
       const ok = await confirmBox(`¿Querés unirte a la party "${iv.nombre}" de ${iv.creador}?`,
@@ -58,7 +60,9 @@ function Screens() {
       })
       open(id)
     }
-    join().catch(() => alertBox('No se pudo unir: la invitación ya no es válida o la party está llena.'))
+    join().catch((e) => alertBox(e.code === 'permission-denied'
+      ? 'No se pudo unir: la invitación ya no es válida o la party está llena.'
+      : `No se pudo unir: ${errorText(e)}.`))
   }, [user])
 
   if (user === undefined) return <main className="app lobby"><p>Cargando…</p></main>
@@ -158,12 +162,11 @@ function Parties({ user, onOpen }) {
   useEffect(() => onSnapshot(
     query(collection(db, 'parties'), where('memberIds', 'array-contains', user.uid)),
     (s) => setList(s.docs.map((d) => ({ id: d.id, ...d.data() }))),
-    (e) => alertBox('Lista: ' + e.code)), [user.uid])
+    report('No se pudo cargar la lista de parties')), [user.uid])
 
   const create = async () => {
     const nombre = name.trim()
     if (!nombre) return
-    setName('')
     const ref = doc(collection(db, 'parties'))
     const code = newCode()
     const batch = writeBatch(db)
@@ -179,7 +182,10 @@ function Parties({ user, onOpen }) {
     })
     batch.set(doc(db, 'invites', code),
       { partyId: ref.id, ownerId: user.uid, nombre, creador: nick(user) })
-    try { await batch.commit() } catch (e) { alertBox('Crear: ' + e.code) }
+    try {
+      await batch.commit()
+      setName('')
+    } catch (e) { report('No se pudo crear la party')(e) }
   }
 
   return (

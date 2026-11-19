@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import {
-  addDoc, arrayRemove, collection, deleteDoc, deleteField, doc, onSnapshot, setDoc, updateDoc, writeBatch,
+  addDoc, collection, deleteDoc, deleteField, doc, onSnapshot, updateDoc, writeBatch,
 } from 'firebase/firestore'
 import { db } from './firebase'
 import { Room } from './App.jsx'
 import { COLS, ROWS, TOKEN_COLORS } from './terrains'
 import Account from './Account'
 import { alertBox, confirmBox, promptBox, choose } from './ui'
+import { report } from './errors.js'
+import { claimMaster, deleteParty, endSession, releaseMaster, removeMember, startSession } from './partyOps.js'
 
 const newCode = () => crypto.randomUUID().replace(/-/g, '').slice(0, 12)
 
@@ -98,20 +100,17 @@ export default function Party({ id, user, onBack }) {
   const isOwner = p.ownerId === me
   const isMaster = p.masterId === me
   const live = p.sesion?.estado === 'jugando'
-  const err = (t) => (e) => alertBox(t + ': ' + e.code, 'Error')
-  const roomUpdate = (f) => updateDoc(rref, f).catch(() => {})
+  const err = report
 
-  // al soltar se actualiza primero la sala (todavía somos master); al tomar, primero la party
-  const setMaster = async (v) => {
-    try {
-      if (v === null && live) await roomUpdate({ master: null })
-      await updateDoc(pref, { masterId: v })
-      if (v !== null && live) await roomUpdate({ master: v })
-    } catch (e) { err('Master')(e) }
-  }
+  // Siempre hay un solo master: tomar, soltar y forzar son transacciones (ver partyOps.js)
   const takeMaster = async () => {
-    if (p.masterId && !(await confirmBox('Vas a quitarle el rol de master a quien lo tiene.', { title: 'Forzar master', ok: 'Forzar' }))) return
-    setMaster(me)
+    const current = p.masterId
+    if (current) {
+      const quien = p.members[current]?.nombre ?? 'quien lo tiene'
+      if (!(await confirmBox(`Vas a quitarle el rol de master a ${quien}.`, { title: 'Forzar master', ok: 'Forzar' }))) return
+    }
+    // Si nadie lo tenía y alguien lo toma justo antes, la transacción falla y avisa
+    claimMaster(id, me, !!current).catch(err('Master'))
   }
 
   const leave = () => { setInRoom(false); setRoom(undefined) }
@@ -123,11 +122,7 @@ export default function Party({ id, user, onBack }) {
       : await confirmBox(`${p.members[uid]?.nombre} deja de ser miembro de la party.`, { title: 'Expulsar', ok: 'Expulsar', danger: true })
     if (!ok) return
     try {
-      await updateDoc(pref, {
-        memberIds: arrayRemove(uid),
-        ['members.' + uid]: deleteField(),
-        ...(p.masterId === uid ? { masterId: null } : {}),
-      })
+      await removeMember(id, uid) // si era el master, también libera el puesto
       if (uid === me) onBack()
     } catch (e) { err('Expulsar')(e) }
   }
@@ -136,10 +131,7 @@ export default function Party({ id, user, onBack }) {
     if (!(await confirmBox(`Se borra "${p.nombre}" con todos sus mapas. No se puede deshacer.`,
       { title: 'Borrar party', ok: 'Borrar', danger: true }))) return
     try {
-      await Promise.all(maps.map((m) => deleteDoc(doc(mapsCol, m.id))))
-      await deleteDoc(rref)
-      await deleteDoc(doc(db, 'invites', p.inviteCode))
-      await deleteDoc(pref)
+      await deleteParty(id, p.inviteCode, maps.map((m) => doc(mapsCol, m.id)))
       onBack()
     } catch (e) { err('Borrar')(e) }
   }
@@ -188,8 +180,7 @@ export default function Party({ id, user, onBack }) {
     if (live && !(await confirmBox('Ya hay una sesión en juego. ¿Reemplazarla?', { title: 'Abrir mapa', ok: 'Reemplazar', danger: true }))) return
     const { id: mapId, nombre, actualizado, players, ...d } = m
     try {
-      await setDoc(rref, { ...d, order: d.order ?? [], abierta: false, master: me, claims: {} })
-      await updateDoc(pref, { sesion: { estado: 'jugando', mapId, mapa: nombre } })
+      await startSession(id, me, d, mapId, nombre) // solo si sigo siendo el master
       setInRoom(true)
     } catch (e) { err('Abrir')(e) }
   }
@@ -210,9 +201,8 @@ export default function Party({ id, user, onBack }) {
     ])
     if (!v) return
     try {
-      if (v === 'save') await updateDoc(doc(mapsCol, p.sesion.mapId), snap(room))
-      await deleteDoc(rref)
-      await updateDoc(pref, { sesion: { estado: 'lobby', mapId: null } })
+      // guardar el mapa, borrar la sala y volver al lobby: todo junto o nada
+      await endSession(id, p.sesion.mapId, v === 'save' ? snap(room) : null)
     } catch (e) { err('Terminar')(e) }
   }
 
@@ -245,13 +235,13 @@ export default function Party({ id, user, onBack }) {
 
   if (inRoom && room) {
     return (
-      <Room code={id} data={room} onLeave={leave} client={me} title={p.nombre}
+      <Room code={id} data={{ ...room, master: p.masterId }} onLeave={leave} client={me} title={p.nombre}
         banner={isMaster ? (
           <div className="tools">
             <span>
               {room.abierta ? '● Sala abierta' : '○ Sala cerrada'} · fichas tomadas: {Object.keys(room.claims ?? {}).length}
             </span>
-            <button className="tool" onClick={() => updateDoc(rref, { abierta: !room.abierta })}>
+            <button className="tool" onClick={() => updateDoc(rref, { abierta: !room.abierta }).catch(err('Sala'))}>
               {room.abierta ? 'Cerrar sala' : 'Abrir sala'}
             </button>
           </div>
@@ -304,7 +294,7 @@ export default function Party({ id, user, onBack }) {
               </span>
             </div>
             {isMaster
-              ? <button className="pt-mini" onClick={() => setMaster(null)}>Soltar</button>
+              ? <button className="pt-mini" onClick={() => releaseMaster(id, me).catch(err('Master'))}>Soltar</button>
               : <button className="pt-mini" onClick={takeMaster}>{p.masterId ? 'Forzar' : 'Tomar'}</button>}
           </div>
         </section>

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { doc, updateDoc, deleteField } from 'firebase/firestore'
 import { db } from './firebase'
-import { alertBox } from './ui'
+import { report } from './errors.js'
+import { addEnemy, claimToken } from './partyOps.js'
 import { KIND_ORDER, KIND_LABEL, TERRAINS, TERRAIN_BY_ID, TOKEN_COLORS, tokenStyle } from './terrains'
 import { MODIFIERS, MOD_GROUPS, MOD_BY_ID } from './modifiers'
 import TurnBar from './Turns'
@@ -98,8 +99,7 @@ export function Room({ code, data, onLeave, client = CLIENT, menuExtra, banner, 
 
   if (!isMaster && myToken === null) {
     const ids = TOKEN_COLORS.map((_, id) => id).filter(placed)
-    const claim = (id) => updateDoc(roomRef, { ['claims.' + id]: client })
-      .catch((e) => alertBox('No se pudo tomar la ficha: ' + e.code, 'Error'))
+    const claim = (id) => claimToken(code, client, id).catch(report('No se pudo tomar la ficha'))
     const wait = data.abierta === false
       ? ['Esperando al master', 'La sala todavía no está abierta. Esta pantalla se actualiza sola.']
       : ids.length === 0
@@ -164,7 +164,7 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave, menuExtra, ban
 
   const change = (next) => {
     const u = diff(map, next)
-    if (Object.keys(u).length) updateDoc(roomRef, u)
+    if (Object.keys(u).length) updateDoc(roomRef, u).catch(report('No se pudo guardar el cambio'))
   }
 
   const resizeGrid = (dimension, value) => {
@@ -232,8 +232,8 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave, menuExtra, ban
       if (picks.enemy === 'none') {
         if (enemy) change(moveEnemy(enemy.id, null))
       } else if ((picks.enemy === 'add' || picks.enemy === 'boss') && !enemy && !tokenAt(i)) {
-        const nextId = map.enemies.reduce((max, item) => Math.max(max, item.id), 0) + 1
-        change({ ...map, enemies: [...map.enemies, { id: nextId, pos: i, boss: picks.enemy === 'boss' }] })
+        // el número lo asigna el servidor (transacción) para que nunca se repita
+        addEnemy(code, i, picks.enemy === 'boss').catch(report('No se pudo agregar el enemigo'))
       }
     }
   }
@@ -339,7 +339,7 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave, menuExtra, ban
               ) : (
                 <button onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?sala=${code}`); setMenu(false) }}>Copiar link</button>
               )}
-              {!isMaster && <button onClick={() => updateDoc(roomRef, { ['claims.' + myToken]: deleteField() })}>Cambiar ficha</button>}
+              {!isMaster && <button onClick={() => updateDoc(roomRef, { ['claims.' + myToken]: deleteField() }).catch(report('No se pudo cambiar de ficha'))}>Cambiar ficha</button>}
               <button onClick={onLeave}>Salir</button>
             </div>
           )}
@@ -371,7 +371,7 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave, menuExtra, ban
         </div>
       )}
 
-      <TurnBar map={map} order={data.order ?? []} isMaster={isMaster} onChange={(o) => updateDoc(roomRef, { order: o })} />
+      <TurnBar map={map} order={data.order ?? []} isMaster={isMaster} onChange={(o) => updateDoc(roomRef, { order: o }).catch(report('No se pudo cambiar el orden'))} />
       <div className="board">
         <div className="grid" style={{ '--cols': map.cols }}>
           {map.cells.map((id, i) => {

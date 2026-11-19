@@ -87,3 +87,29 @@ export function endSession(partyId, mapId, mapData) {
   b.update(partyRef(partyId), { sesion: { estado: 'lobby', mapId: null } })
   return b.commit()
 }
+
+// ── Sala ─────────────────────────────────────────────────────────────────────
+
+// Tomar una ficha: si dos jugadores la eligen a la vez, solo uno se la queda
+export const claimToken = (roomId, client, tokenId) =>
+  runTransaction(db, async (tx) => {
+    const s = await tx.get(roomRef(roomId))
+    if (!s.exists()) return
+    const owner = s.data().claims?.[tokenId]
+    if (owner && owner !== client) throw fail('ficha-tomada')
+    tx.update(roomRef(roomId), { ['claims.' + tokenId]: client })
+  })
+
+// Agregar un enemigo: el número se calcula con los datos del servidor dentro de la transacción,
+// así dos altas simultáneas nunca repiten id ni caen en la misma celda
+export const addEnemy = (roomId, pos, boss) =>
+  runTransaction(db, async (tx) => {
+    const s = await tx.get(roomRef(roomId))
+    if (!s.exists()) return
+    const d = s.data()
+    const taken = Object.values(d.enemies ?? {}).some((e) => e.pos === pos)
+      || Object.values(d.tokens ?? {}).some((t) => t.pos === pos)
+    if (taken) return
+    const id = Object.keys(d.enemies ?? {}).reduce((max, k) => Math.max(max, Number(k)), 0) + 1
+    tx.update(roomRef(roomId), { ['enemies.' + id]: { pos, dead: false, boss } })
+  })

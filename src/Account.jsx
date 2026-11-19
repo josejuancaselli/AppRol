@@ -3,12 +3,12 @@ import {
   EmailAuthProvider, GoogleAuthProvider, deleteUser, reauthenticateWithCredential,
   reauthenticateWithPopup, signOut,
 } from 'firebase/auth'
-import {
-  arrayRemove, collection, deleteDoc, deleteField, doc, getDocs, query, updateDoc, where,
-} from 'firebase/firestore'
+import { collection, getDocs, query, where } from 'firebase/firestore'
 import { db } from './firebase'
 import { auth } from './auth'
-import { alertBox, confirmBox, promptBox } from './ui'
+import { confirmBox, promptBox } from './ui'
+import { report } from './errors.js'
+import { deleteParty, removeMember } from './partyOps.js'
 
 export const nick = (u) => u.displayName || u.email?.split('@')[0] || 'Jugador'
 
@@ -49,30 +49,26 @@ export default function Account({ user, reset }) {
         await reauthenticateWithPopup(user, new GoogleAuthProvider())
       }
 
-      // 2. datos
+      // 2. datos: cada party se procesa de forma atómica (todo o nada). Si algo falla, las que
+      //    quedaron pendientes siguen existiendo y se puede reintentar
       for (const p of mine) {
         if (p.ownerId === user.uid) {
           const maps = await getDocs(collection(db, 'parties', p.id, 'maps'))
-          await Promise.all(maps.docs.map((d) => deleteDoc(d.ref)))
-          await deleteDoc(doc(db, 'rooms', p.id))
-          await deleteDoc(doc(db, 'invites', p.inviteCode))
-          await deleteDoc(doc(db, 'parties', p.id))
+          await deleteParty(p.id, p.inviteCode, maps.docs.map((d) => d.ref))
         } else {
-          if (p.masterId === user.uid && p.sesion?.estado === 'jugando') {
-            await updateDoc(doc(db, 'rooms', p.id), { master: null }).catch(() => {})
-          }
-          await updateDoc(doc(db, 'parties', p.id), {
-            memberIds: arrayRemove(user.uid),
-            ['members.' + user.uid]: deleteField(),
-            ...(p.masterId === user.uid ? { masterId: null } : {}),
-          })
+          await removeMember(p.id, user.uid) // si era el master, también libera el puesto
         }
       }
 
       // 3. cuenta
       reset()
       await deleteUser(user)
-    } catch (e) { alertBox('Borrar perfil: ' + e.code) }
+    } catch (e) {
+      // cerrar la ventana de Google al confirmar identidad no es un error
+      if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') {
+        report('No se pudo borrar el perfil')(e)
+      }
+    }
   }
 
   return (
