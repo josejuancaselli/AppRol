@@ -11,6 +11,7 @@ import { fromDoc, diff } from './roomData'
 import './App.css'
 import './room.css'
 import './edges.css'
+import './sala.css'
 
 const GRID_SIZES = [6, 8, 10, 12, 14, 16, 18, 20, 22, 24]
 let CLIENT = localStorage.getItem('rol-client')
@@ -70,6 +71,15 @@ const GROUPS = {
 }
 const TITLES = { terrain: 'Terreno', mod: 'Modificadores', token: 'Fichas', enemy: 'Enemigos' }
 
+const Back = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M13 4l-6 6 6 6" /></svg>
+)
+const Dots = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+    <circle cx="4" cy="10" r="1.6" /><circle cx="10" cy="10" r="1.6" /><circle cx="16" cy="10" r="1.6" />
+  </svg>
+)
+
 function Swatch({ kind, id, small }) {
   const sm = small ? ' sm' : ''
   if (id === 'none') return <span className={`swatch round dark${sm}`}>×</span>
@@ -110,7 +120,7 @@ export function Room({ code, data, onLeave, client = CLIENT, menuExtra, banner, 
         <div className="ui-screen ui-top">
           <header className="ui-bar" style={{ justifyContent: 'flex-start', gap: 8 }}>
             <button className="pt-icon pt-back" aria-label="Salir de la sala" onClick={onLeave}>
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M13 4l-6 6 6 6" /></svg>
+              <Back />
             </button>
             <h1 className="ui-h1 pt-title">Elegí tu ficha</h1>
           </header>
@@ -148,7 +158,7 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave, menuExtra, ban
   const map = fromDoc(data)
   const [mode, setMode] = useState(isMaster ? 'edit' : 'play')
   const [picks, setPicks] = useState({ terrain: 'rock', mod: 'fire', token: 0, enemy: 'add' })
-  const [active, setActive] = useState(isMaster ? 'terrain' : 'move')
+  const [active, setActive] = useState(isMaster ? null : 'move') // null: ninguna herramienta, tocar el mapa no hace nada
   const [open, setOpen] = useState(null)
   const [selected, setSelected] = useState(myToken)
   const [selectedEnemy, setSelectedEnemy] = useState(null)
@@ -300,7 +310,7 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave, menuExtra, ban
 
   const switchMode = (m) => {
     setMode(m)
-    setActive(m === 'play' ? 'move' : 'terrain')
+    setActive(m === 'play' ? 'move' : null)
     setSelected(null)
     setSelectedEnemy(null)
     setFocus(null)
@@ -327,221 +337,201 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave, menuExtra, ban
   const placed = map.tokens.filter((t) => t.pos !== null)
   const placedEnemies = map.enemies.filter((e) => e.pos !== null)
 
+  const selector = (k) => (
+    <button key={k} className={`sel${active === k ? ' active' : ''}`} aria-haspopup="dialog" onClick={() => setOpen(k)}>
+      <span className="sel-title">{TITLES[k]} ▾</span>
+      <span className="sel-value">
+        <Swatch kind={k} id={picks[k]} small />
+        <span className="txt">{valueLabel[k]}</span>
+      </span>
+    </button>
+  )
+
   return (
-    <main className="app">
-      <header className="top">
-        <div className="menu-wrap">
-          <button className="menu-btn" onClick={() => setMenu(!menu)}>Sala {title ?? code} ⋯</button>
-          {menu && (
-            <div className="menu">
-              {menuExtra ? (
-                <div style={{ display: 'contents' }} onClick={() => setMenu(false)}>{menuExtra}</div>
-              ) : (
-                <button onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?sala=${code}`); setMenu(false) }}>Copiar link</button>
-              )}
-              {!isMaster && <button onClick={() => updateDoc(roomRef, { ['claims.' + myToken]: deleteField() }).catch(report('No se pudo cambiar de ficha'))}>Cambiar ficha</button>}
-              <button onClick={onLeave}>Salir</button>
-            </div>
-          )}
-        </div>
+    <div className="ui-page">
+      <main className="app sa">
+        <header className="sa-head">
+          <button className="pt-icon pt-back" aria-label="Salir de la sala" onClick={onLeave}><Back /></button>
+          <h1 className="ui-h2 sa-title">{title ?? code}</h1>
+          <div className="menu-wrap">
+            <button className="pt-icon" aria-label="Menú de la sala" aria-expanded={menu} onClick={() => setMenu(!menu)}><Dots /></button>
+            {menu && (
+              <>
+                <div className="sa-scrim" onClick={() => setMenu(false)} />
+                <div className="menu">
+                  {menuExtra ? (
+                    <div style={{ display: 'contents' }} onClick={() => setMenu(false)}>{menuExtra}</div>
+                  ) : (
+                    <button onClick={() => { navigator.clipboard?.writeText(`${location.origin}${location.pathname}?sala=${code}`); setMenu(false) }}>Copiar link</button>
+                  )}
+                  {!isMaster && <button onClick={() => updateDoc(roomRef, { ['claims.' + myToken]: deleteField() }).catch(report('No se pudo cambiar de ficha'))}>Cambiar ficha</button>}
+                </div>
+              </>
+            )}
+          </div>
+        </header>
+
         {isMaster && (
-          <div className="modes">
-            <button aria-pressed={mode === 'edit'} onClick={() => switchMode('edit')}>Editar</button>
-            <button aria-pressed={mode === 'play'} onClick={() => switchMode('play')}>Jugar</button>
+          <div className="sa-ctl">
+            <div className="sa-modes">
+              <button aria-pressed={mode === 'edit'} onClick={() => switchMode('edit')}>Editar</button>
+              <button aria-pressed={mode === 'play'} onClick={() => switchMode('play')}>Jugar</button>
+            </div>
+            {banner}
           </div>
         )}
-      </header>
 
-      {banner}
-
-      {isMaster && mode === 'edit' && (
-        <div className="grid-size">
-          <label>
-            Columnas
-            <select value={map.cols} onChange={(e) => resizeGrid('cols', Number(e.target.value))}>
-              {GRID_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
-            </select>
-          </label>
-          <label>
-            Filas
-            <select value={map.rows} onChange={(e) => resizeGrid('rows', Number(e.target.value))}>
-              {GRID_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
-            </select>
-          </label>
-        </div>
-      )}
-
-      <TurnBar map={map} order={data.order ?? []} isMaster={isMaster} onChange={(o) => updateDoc(roomRef, { order: o }).catch(report('No se pudo cambiar el orden'))} />
-      <div className="board">
-        <div className="grid" style={{ '--cols': map.cols }}>
-          {map.cells.map((id, i) => {
-            const tok = liveToken(i)
-            const enemy = liveEnemy(i)
-            const deadTok = map.tokens.find((t) => t.pos === i && t.dead)
-            const deadEnemy = map.enemies.find((e) => e.pos === i && e.dead)
-            const mod = map.mods[i]
-            let label = `Fila ${Math.floor(i / map.cols) + 1}, columna ${(i % map.cols) + 1}: ${TERRAIN_BY_ID[id].label}`
-            if (mod) label += `, ${MOD_BY_ID[mod].label}`
-            const here = [
-              ...map.tokens.filter((t) => t.pos === i).map((t) => `jugador ${t.id + 1}${t.dead ? ' (muerto)' : ''}`),
-              ...map.enemies.filter((e) => e.pos === i).map((e) => `enemigo E${e.id}${e.dead ? ' (muerto)' : ''}`),
-            ]
-            if (here.length) label += `, ${here.join(', ')}`
-            return (
-              <button
-                key={i}
-                className={`cell t-${id}${mode === 'play' && focus === i ? ' focus' : ''}`}
-                aria-label={label}
-                onClick={() => (mode === 'edit' ? applyTool(i) : playCell(i))}
-              >
-                {mod && <span className={`m m-${mod}`} />}
-                {tok && (
-                  <span
-                    className={`token${selected === tok.id ? ' token-selected' : ''}`}
-                    style={tokenStyle(tok.id)}
-                  >
-                    {tok.id + 1}
-                  </span>
-                )}
-                {enemy && (
-                  <span className={`enemy${enemy.boss ? ' boss' : ''}${enemy.id >= 10 ? ' enemy-long' : ''}${selectedEnemy === enemy.id ? ' enemy-selected' : ''}`}>
-                    {enemy.boss ? 'J' : 'E'}{enemy.id}
-                  </span>
-                )}
-                {(deadTok || deadEnemy) && (tok || enemy ? (
-                  <span className="corpse-mark">†</span>
-                ) : (
-                  <span className={`${deadTok ? 'token' : 'enemy'} dead`}>†</span>
-                ))}
-              </button>
-            )
-          })}
-        </div>
-        <EdgeLayer edges={map.edges} cols={map.cols} rows={map.rows} />
-        {isMaster && mode === 'edit' && active === 'terrain' && EDGES.includes(picks.terrain) && (
-          <div className="edge-hit" onClick={placeEdge} />
-        )}
-      </div>
-
-      {mode === 'play' && (
-        <div className="cols">
-          <div className="cc">
-            {placed.filter((tk) => isMaster || tk.id === myToken).map((tk) => (
-              <button
-                key={tk.id}
-                className="pc"
-                aria-label={`Jugador ${tk.id + 1}`}
-                aria-pressed={active === 'move' && selected === tk.id}
-                disabled={tk.dead}
-                onClick={() => {
-                  setActive('move')
-                  setSelected(tk.id)
-                  setSelectedEnemy(null)
-                  setFocus(tk.pos)
-                  setOpen(null)
-                }}
-              >
-                <span className="swatch round" style={tokenStyle(tk.id)}>{tk.id + 1}</span>
-              </button>
-            ))}
+        {isMaster && mode === 'edit' && (
+          <div className="grid-size">
+            <label>
+              Columnas
+              <select value={map.cols} onChange={(e) => resizeGrid('cols', Number(e.target.value))}>
+                {GRID_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
+              </select>
+            </label>
+            <label>
+              Filas
+              <select value={map.rows} onChange={(e) => resizeGrid('rows', Number(e.target.value))}>
+                {GRID_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
+              </select>
+            </label>
           </div>
-          {isMaster ? (
-            <div className="cc">
-              {placedEnemies.map((enemy) => (
+        )}
+
+        <TurnBar map={map} order={data.order ?? []} isMaster={isMaster} onChange={(o) => updateDoc(roomRef, { order: o }).catch(report('No se pudo cambiar el orden'))} />
+        <div className="board">
+          <div className="grid" style={{ '--cols': map.cols }}>
+            {map.cells.map((id, i) => {
+              const tok = liveToken(i)
+              const enemy = liveEnemy(i)
+              const deadTok = map.tokens.find((t) => t.pos === i && t.dead)
+              const deadEnemy = map.enemies.find((e) => e.pos === i && e.dead)
+              const mod = map.mods[i]
+              let label = `Fila ${Math.floor(i / map.cols) + 1}, columna ${(i % map.cols) + 1}: ${TERRAIN_BY_ID[id].label}`
+              if (mod) label += `, ${MOD_BY_ID[mod].label}`
+              const here = [
+                ...map.tokens.filter((t) => t.pos === i).map((t) => `jugador ${t.id + 1}${t.dead ? ' (muerto)' : ''}`),
+                ...map.enemies.filter((e) => e.pos === i).map((e) => `enemigo E${e.id}${e.dead ? ' (muerto)' : ''}`),
+              ]
+              if (here.length) label += `, ${here.join(', ')}`
+              return (
                 <button
-                  key={enemy.id}
-                  className="pc"
-                  aria-label={`${enemy.boss ? 'Jefe J' : 'Enemigo E'}${enemy.id}`}
-                  aria-pressed={active === 'move' && selectedEnemy === enemy.id}
-                  disabled={enemy.dead}
-                  onClick={() => {
-                    setActive('move')
-                    setSelected(null)
-                    setSelectedEnemy(enemy.id)
-                    setFocus(enemy.pos)
-                    setOpen(null)
-                  }}
+                  key={i}
+                  className={`cell t-${id}${mode === 'play' && focus === i ? ' focus' : ''}`}
+                  aria-label={label}
+                  onClick={() => (mode === 'edit' ? applyTool(i) : playCell(i))}
                 >
-                  <span className={`swatch round enemy-swatch${enemy.boss ? ' boss' : ''}`}>{enemy.boss ? 'J' : 'E'}{enemy.id}</span>
+                  {mod && <span className={`m m-${mod}`} />}
+                  {tok && (
+                    <span
+                      className={`token${selected === tok.id ? ' token-selected' : ''}`}
+                      style={tokenStyle(tok.id)}
+                    >
+                      {tok.id + 1}
+                    </span>
+                  )}
+                  {enemy && (
+                    <span className={`enemy${enemy.boss ? ' boss' : ''}${enemy.id >= 10 ? ' enemy-long' : ''}${selectedEnemy === enemy.id ? ' enemy-selected' : ''}`}>
+                      {enemy.boss ? 'J' : 'E'}{enemy.id}
+                    </span>
+                  )}
+                  {(deadTok || deadEnemy) && (tok || enemy ? (
+                    <span className="corpse-mark">†</span>
+                  ) : (
+                    <span className={`${deadTok ? 'token' : 'enemy'} dead`}>†</span>
+                  ))}
                 </button>
-              ))}
-            </div>
-          ) : <div />}
-          <div className="modcol">
-            <button
-              className={`sel${active === 'mod' ? ' active' : ''}`}
-              aria-expanded={open === 'mod'}
-              onClick={() => setOpen(open === 'mod' ? null : 'mod')}
-            >
-              <span className="sel-title">Modificadores {open === 'mod' ? '▴' : '▾'}</span>
-              <span className="sel-value">
-                <Swatch kind="mod" id={picks.mod} small />
-                <span className="txt">{valueLabel.mod}</span>
-              </span>
-            </button>
+              )
+            })}
           </div>
-          {open === 'mod' && (
-            <div className="modpan">
-              {GROUPS.mod.map((g) => (
-                <section key={g.label}>
-                  <h2>{g.label}</h2>
-                  <div className="tools">
-                    {g.items.map((it) => (
-                      <button key={it.id} className="tool" aria-pressed={picks.mod === it.id} onClick={() => pick('mod', it.id)}>
-                        <Swatch kind="mod" id={it.id} />
-                        {it.label}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              ))}
-            </div>
+          <EdgeLayer edges={map.edges} cols={map.cols} rows={map.rows} />
+          {isMaster && mode === 'edit' && active === 'terrain' && EDGES.includes(picks.terrain) && (
+            <div className="edge-hit" onClick={placeEdge} />
           )}
         </div>
-      )}
 
-      {mode === 'edit' && (
-        <>
-          <div className="bar">
-            {['terrain', 'mod', 'token', 'enemy'].map((k) => (
-              <button
-                key={k}
-                className={`sel${active === k ? ' active' : ''}`}
-                aria-expanded={open === k}
-                onClick={() => setOpen(open === k ? null : k)}
-              >
-                <span className="sel-title">{TITLES[k]} ▾</span>
-                <span className="sel-value">
-                  <Swatch kind={k} id={picks[k]} small />
-                  <span className="txt">{valueLabel[k]}</span>
-                </span>
-              </button>
-            ))}
-          </div>
-
-          {open && (
-            <div className="panel">
-              {GROUPS[open].map((g) => (
-                <section key={g.label}>
-                  <h2>{g.label}</h2>
-                  <div className="tools">
-                    {g.items.map((it) => (
-                      <button key={it.id} className="tool" aria-pressed={picks[open] === it.id} onClick={() => pick(open, it.id)}>
-                        <Swatch kind={open} id={it.id} />
-                        {it.label}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              ))}
+        {mode === 'play' && (
+          <section className="sa-dock">
+            <div className="sa-fichas">
+              <span className="pt-label">{isMaster ? 'Mover ficha' : 'Tu ficha'}</span>
+              <div className="sa-chips">
+                {placed.filter((tk) => isMaster || tk.id === myToken).map((tk) => (
+                  <button
+                    key={tk.id}
+                    className="pc"
+                    aria-label={`Jugador ${tk.id + 1}`}
+                    aria-pressed={active === 'move' && selected === tk.id}
+                    disabled={tk.dead}
+                    onClick={() => {
+                      setActive('move')
+                      setSelected(tk.id)
+                      setSelectedEnemy(null)
+                      setFocus(tk.pos)
+                      setOpen(null)
+                    }}
+                  >
+                    <span className="swatch round" style={tokenStyle(tk.id)}>{tk.id + 1}</span>
+                  </button>
+                ))}
+                {isMaster && placed.length > 0 && placedEnemies.length > 0 && <i className="sa-div" />}
+                {isMaster && placedEnemies.map((enemy) => (
+                  <button
+                    key={enemy.id}
+                    className="pc"
+                    aria-label={`${enemy.boss ? 'Jefe J' : 'Enemigo E'}${enemy.id}`}
+                    aria-pressed={active === 'move' && selectedEnemy === enemy.id}
+                    disabled={enemy.dead}
+                    onClick={() => {
+                      setActive('move')
+                      setSelected(null)
+                      setSelectedEnemy(enemy.id)
+                      setFocus(enemy.pos)
+                      setOpen(null)
+                    }}
+                  >
+                    <span className={`swatch round enemy-swatch${enemy.boss ? ' boss' : ''}`}>{enemy.boss ? 'J' : 'E'}{enemy.id}</span>
+                  </button>
+                ))}
+              </div>
             </div>
-          )}
+            {selector('mod')}
+          </section>
+        )}
 
-          <div className="actions">
-            <button onClick={clearTerrain}>Limpiar terreno</button>
+        {mode === 'edit' && (
+          <>
+            <div className="bar">{['terrain', 'mod', 'token', 'enemy'].map(selector)}</div>
+            {active === null && <p className="sa-hint">Ninguna herramienta activa. Elegí una para editar el mapa.</p>}
+            <div className="actions">
+              <button onClick={clearTerrain}>Limpiar terreno</button>
+            </div>
+          </>
+        )}
+
+        {open && (
+          <div className="ui-back" onClick={() => setOpen(null)}>
+            <div className="ui-dlg sa-sheet" role="dialog" aria-modal="true" aria-label={TITLES[open]} onClick={(e) => e.stopPropagation()}>
+              <span className="ui-handle" aria-hidden="true" />
+              <h2 className="ui-dlg-title">{TITLES[open]}</h2>
+              <div className="sa-groups">
+                {GROUPS[open].map((g) => (
+                  <section key={g.label}>
+                    <h3 className="pt-label">{g.label}</h3>
+                    <div className="tools">
+                      {g.items.map((it) => (
+                        <button key={it.id} className="tool" aria-pressed={picks[open] === it.id} onClick={() => pick(open, it.id)}>
+                          <Swatch kind={open} id={it.id} />
+                          {it.label}
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            </div>
           </div>
-        </>
-      )}
-    </main>
+        )}
+      </main>
+    </div>
   )
 }

@@ -237,20 +237,20 @@ export default function Party({ id, user, onBack }) {
     return (
       <Room code={id} data={{ ...room, master: p.masterId }} onLeave={leave} client={me} title={p.nombre}
         banner={isMaster ? (
-          <div className="tools">
+          <button className="sa-room" role="switch" aria-checked={!!room.abierta}
+            onClick={() => updateDoc(rref, { abierta: !room.abierta }).catch(err('Sala'))}>
+            <span className="ui-dot" />
             <span>
-              {room.abierta ? '● Sala abierta' : '○ Sala cerrada'} · fichas tomadas: {Object.keys(room.claims ?? {}).length}
+              {room.abierta ? 'Sala abierta' : 'Sala cerrada'}
+              <small>fichas tomadas: {Object.keys(room.claims ?? {}).length}</small>
             </span>
-            <button className="tool" onClick={() => updateDoc(rref, { abierta: !room.abierta }).catch(err('Sala'))}>
-              {room.abierta ? 'Cerrar sala' : 'Abrir sala'}
-            </button>
-          </div>
+          </button>
         ) : null}
         menuExtra={isMaster ? (
           <>
             <button onClick={save}>Guardar</button>
             <button onClick={saveAs}>Guardar como…</button>
-            <button onClick={end}>Terminar sesión</button>
+            <button className="danger" onClick={end}>Terminar sesión</button>
           </>
         ) : <></>} />
     )
