@@ -103,7 +103,7 @@ export function Room({ code, data, onLeave, client = CLIENT, menuExtra, banner, 
     if (!isMaster) return
     const stale = Object.keys(data.claims ?? {}).filter((k) => !placed(k))
     if (stale.length) {
-      updateDoc(roomRef, Object.fromEntries(stale.map((k) => ['claims.' + k, deleteField()]))).catch(() => {})
+      updateDoc(roomRef, Object.fromEntries(stale.map((k) => ['claims.' + k, deleteField()]))).catch(() => { })
     }
   })
 
@@ -512,7 +512,12 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave, menuExtra, ban
           <div className="ui-back" onClick={() => setOpen(null)}>
             <div className="ui-dlg sa-sheet" role="dialog" aria-modal="true" aria-label={TITLES[open]} onClick={(e) => e.stopPropagation()}>
               <span className="ui-handle" aria-hidden="true" />
-              <h2 className="ui-dlg-title">{TITLES[open]}</h2>
+              <div className="sa-sheet-head">
+                <h2 className="ui-dlg-title">{TITLES[open]}</h2>
+                <button className="pt-icon" aria-label="Cerrar" onClick={() => setOpen(null)}>
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" /></svg>
+                </button>
+              </div>
               <div className="sa-groups">
                 {GROUPS[open].map((g) => (
                   <section key={g.label}>
