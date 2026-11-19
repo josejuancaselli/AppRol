@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { doc, onSnapshot, setDoc, updateDoc, deleteField } from 'firebase/firestore'
+import { doc, updateDoc, deleteField } from 'firebase/firestore'
 import { db } from './firebase'
+import { alertBox } from './ui'
 import { KIND_ORDER, KIND_LABEL, TERRAINS, TERRAIN_BY_ID, TOKEN_COLORS, tokenStyle } from './terrains'
 import { MODIFIERS, MOD_GROUPS, MOD_BY_ID } from './modifiers'
 import TurnBar from './Turns'
 import { EDGES, EDGE_LABEL, EdgeLayer, nearestEdge, edgeInside } from './Edges'
-import { sampleMap, toDoc, fromDoc, diff, newRoomCode } from './roomData'
+import { fromDoc, diff } from './roomData'
 import './App.css'
 import './room.css'
 import './edges.css'
@@ -79,55 +80,6 @@ function Swatch({ kind, id, small }) {
   return <span className={`swatch round${sm}`} style={tokenStyle(id)}>{id + 1}</span>
 }
 
-export default function App() {
-  const [code, setCode] = useState(() =>
-    (new URLSearchParams(location.search).get('sala') || localStorage.getItem('rol-sala') || '').toUpperCase())
-  const [input, setInput] = useState('')
-  const [data, setData] = useState(undefined)
-
-  useEffect(() => {
-    if (!code) return
-    setData(undefined)
-    return onSnapshot(doc(db, 'rooms', code), (s) => setData(s.exists() ? s.data() : null))
-  }, [code])
-
-  const enter = (c) => {
-    c = c.trim().toUpperCase()
-    if (!c) return
-    localStorage.setItem('rol-sala', c)
-    setCode(c)
-  }
-  const leave = () => {
-    localStorage.removeItem('rol-sala')
-    history.replaceState(null, '', location.pathname)
-    setCode('')
-  }
-  const create = async () => {
-    const c = newRoomCode()
-    await setDoc(doc(db, 'rooms', c), toDoc(sampleMap(), CLIENT))
-    enter(c)
-  }
-
-  if (code && data) return <Room code={code} data={data} onLeave={leave} />
-
-  return (
-    <main className="app lobby">
-      <header className="top"><h1>Mapa de rol</h1></header>
-      {code && data === undefined && <p>Cargando sala…</p>}
-      {code && data === null && <p>La sala {code} no existe</p>}
-      {(!code || data === null) && (
-        <div className="tools">
-          <button className="tool" onClick={create}>Crear sala</button>
-          <input className="room-input" placeholder="Código" value={input}
-            onChange={(e) => setInput(e.target.value)} />
-          <button className="tool" onClick={() => enter(input)}>Entrar</button>
-        </div>
-      )}
-      {code && <button className="tool" onClick={leave}>Salir</button>}
-    </main>
-  )
-}
-
 export function Room({ code, data, onLeave, client = CLIENT, menuExtra, banner, title }) {
   const roomRef = doc(db, 'rooms', code)
   const isMaster = data.master === client
@@ -140,30 +92,51 @@ export function Room({ code, data, onLeave, client = CLIENT, menuExtra, banner, 
     if (!isMaster) return
     const stale = Object.keys(data.claims ?? {}).filter((k) => !placed(k))
     if (stale.length) {
-      updateDoc(roomRef, Object.fromEntries(stale.map((k) => ['claims.' + k, deleteField()])))
+      updateDoc(roomRef, Object.fromEntries(stale.map((k) => ['claims.' + k, deleteField()]))).catch(() => {})
     }
   })
 
   if (!isMaster && myToken === null) {
     const ids = TOKEN_COLORS.map((_, id) => id).filter(placed)
+    const claim = (id) => updateDoc(roomRef, { ['claims.' + id]: client })
+      .catch((e) => alertBox('No se pudo tomar la ficha: ' + e.code, 'Error'))
+    const wait = data.abierta === false
+      ? ['Esperando al master', 'La sala todavía no está abierta. Esta pantalla se actualiza sola.']
+      : ids.length === 0
+        ? ['Todavía no hay fichas', 'El master no colocó fichas de jugador en el mapa.']
+        : null
     return (
-      <main className="app lobby">
-        <header className="top"><h1>Elegí tu ficha</h1></header>
-        {data.abierta === false ? (
-          <p>Esperando que el master abra la sala</p>
-        ) : ids.length === 0 ? (
-          <p>El master todavía no creó fichas de jugador</p>
-        ) : (
-          <div className="tools">
-            {ids.map((id) => (
-              <button key={id} className="tool" disabled={!!data.claims?.[id]}
-                onClick={() => updateDoc(roomRef, { ['claims.' + id]: client })}>
-                <Swatch kind="token" id={id} />Jugador {id + 1}
-              </button>
-            ))}
-          </div>
-        )}
-        <button className="tool" onClick={onLeave}>Salir</button>
+      <main className="ui-page">
+        <div className="ui-screen ui-top">
+          <header className="ui-bar" style={{ justifyContent: 'flex-start', gap: 8 }}>
+            <button className="pt-icon pt-back" aria-label="Salir de la sala" onClick={onLeave}>
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M13 4l-6 6 6 6" /></svg>
+            </button>
+            <h1 className="ui-h1 pt-title">Elegí tu ficha</h1>
+          </header>
+          {wait ? (
+            <div className="ui-empty">
+              <h2 className="ui-h2">{wait[0]}</h2>
+              <p className="ui-sub">{wait[1]}</p>
+            </div>
+          ) : (
+            <>
+              <p className="ui-sub">{title ? `Party ${title}. ` : ''}Tocá una ficha libre para jugar con ella.</p>
+              <div className="sf-grid">
+                {ids.map((id) => {
+                  const taken = !!data.claims?.[id]
+                  return (
+                    <button key={id} className="sf-tok" disabled={taken} onClick={() => claim(id)}>
+                      <span className="sf-dot" style={tokenStyle(id)}>{id + 1}</span>
+                      <span className="sf-name">Jugador {id + 1}</span>
+                      <span className="sf-state">{taken ? 'Tomada' : 'Libre'}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
       </main>
     )
   }
@@ -572,14 +545,3 @@ function Board({ roomRef, code, data, isMaster, myToken, onLeave, menuExtra, ban
     </main>
   )
 }
-
-
-// rules_version = '2';
-
-// service cloud.firestore {
-//   match /databases/{database}/documents {
-//     match /{document=**} {
-//       allow read, write: if true;
-//     }
-//   }
-// }

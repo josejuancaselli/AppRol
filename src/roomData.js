@@ -1,5 +1,6 @@
 import { deleteField } from 'firebase/firestore'
-import { COLS, ROWS, TOKEN_COLORS } from './terrains'
+import { COLS, ROWS, TERRAIN_BY_ID, TOKEN_COLORS } from './terrains'
+import { MOD_BY_ID } from './modifiers'
 
 // En Firestore el mapa se guarda "disperso" (solo celdas con terreno o modificador)
 // y con claves por índice, para poder actualizar una sola celda sin pisar a los demás.
@@ -53,8 +54,9 @@ export const fromDoc = (d) => {
   return {
     cols: d.cols,
     rows: d.rows,
-    cells: Array.from({ length: n }, (_, i) => d.cells?.[i] ?? 'grass'),
-    mods: Array.from({ length: n }, (_, i) => d.mods?.[i] ?? null),
+    // un terreno o modificador que ya no existe se muestra como pasto / sin modificador
+    cells: Array.from({ length: n }, (_, i) => (Object.hasOwn(TERRAIN_BY_ID, d.cells?.[i]) ? d.cells[i] : 'grass')),
+    mods: Array.from({ length: n }, (_, i) => (Object.hasOwn(MOD_BY_ID, d.mods?.[i]) ? d.mods[i] : null)),
     tokens: TOKEN_COLORS.map((color, id) => ({
       id,
       color,

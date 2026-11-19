@@ -5,6 +5,8 @@ import {
 import { db } from './firebase'
 import { Room } from './App.jsx'
 import { COLS, ROWS, TOKEN_COLORS } from './terrains'
+import Account from './Account'
+import { alertBox, confirmBox, promptBox, choose } from './ui'
 
 const newCode = () => crypto.randomUUID().replace(/-/g, '').slice(0, 12)
 
@@ -32,11 +34,24 @@ const snap = (r) => ({
   actualizado: Date.now(),
 })
 
+const HUES = ['#5b7fa6', '#6a9a6e', '#a6685b', '#9a7bb0', '#4fa3a5', '#b58a5a']
+const hue = (uid) => HUES[[...uid].reduce((a, c) => a + c.charCodeAt(0), 0) % HUES.length]
+
+const Crown = ({ size = 20, color = '#1b1407' }) => (
+  <svg width={size} height={size} viewBox="0 0 20 20" fill={color} aria-hidden="true"><path d="M3 15l-1-9 4 3 4-6 4 6 4-3-1 9z" /></svg>
+)
+const Dots = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+    <circle cx="4" cy="10" r="1.6" /><circle cx="10" cy="10" r="1.6" /><circle cx="16" cy="10" r="1.6" />
+  </svg>
+)
+const Plus = ({ size = 22, color }) => (
+  <svg width={size} height={size} viewBox="0 0 20 20" stroke={color} strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M10 4v12M4 10h12" /></svg>
+)
+
 export default function Party({ id, user, onBack }) {
   const [p, setP] = useState(undefined)
   const [maps, setMaps] = useState([])
-  const [name, setName] = useState('')
-  const [open, setOpen] = useState('')
   const [inRoom, setInRoom] = useState(false)
   const [room, setRoom] = useState(undefined)
   const pref = doc(db, 'parties', id)
@@ -60,13 +75,21 @@ export default function Party({ id, user, onBack }) {
     if (stale.length) updateDoc(rref, Object.fromEntries(stale)).catch(() => {})
   })
 
-  const back = <button className="tool" onClick={onBack}>← Volver</button>
-  if (p === undefined) return <main className="app lobby"><p>Cargando…</p></main>
+  const backBtn = (
+    <button className="pt-icon pt-back" aria-label="Volver" onClick={onBack}>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M13 4l-6 6 6 6" /></svg>
+    </button>
+  )
+  if (p === undefined) {
+    return <main className="ui-page"><div className="ui-screen ui-top"><p className="ui-sub">Cargando…</p></div></main>
+  }
   if (p === null || !p.memberIds.includes(user.uid)) {
     return (
-      <main className="app lobby">
-        <p>No sos miembro de esta party, o ya no existe</p>
-        {back}
+      <main className="ui-page">
+        <div className="ui-screen ui-top">
+          <p className="ui-sub">No sos miembro de esta party, o ya no existe.</p>
+          <button className="ui-btn ui-btn-secondary" onClick={onBack}>Volver</button>
+        </div>
       </main>
     )
   }
@@ -74,8 +97,8 @@ export default function Party({ id, user, onBack }) {
   const me = user.uid
   const isOwner = p.ownerId === me
   const isMaster = p.masterId === me
-  const err = (t) => (e) => alert(t + ': ' + e.code)
   const live = p.sesion?.estado === 'jugando'
+  const err = (t) => (e) => alertBox(t + ': ' + e.code, 'Error')
   const roomUpdate = (f) => updateDoc(rref, f).catch(() => {})
 
   // al soltar se actualiza primero la sala (todavía somos master); al tomar, primero la party
@@ -84,15 +107,21 @@ export default function Party({ id, user, onBack }) {
       if (v === null && live) await roomUpdate({ master: null })
       await updateDoc(pref, { masterId: v })
       if (v !== null && live) await roomUpdate({ master: v })
-    } catch (e) { alert('Master: ' + e.code) }
+    } catch (e) { err('Master')(e) }
+  }
+  const takeMaster = async () => {
+    if (p.masterId && !(await confirmBox('Vas a quitarle el rol de master a quien lo tiene.', { title: 'Forzar master', ok: 'Forzar' }))) return
+    setMaster(me)
   }
 
   const leave = () => { setInRoom(false); setRoom(undefined) }
 
   // expulsar a otro (creador) o abandonar la party (uno mismo)
   const expel = async (uid) => {
-    const msg = uid === me ? '¿Abandonar la party?' : `¿Expulsar a ${p.members[uid]?.nombre}?`
-    if (!window.confirm(msg)) return
+    const ok = uid === me
+      ? await confirmBox('Vas a salir de la party.', { title: 'Abandonar party', ok: 'Abandonar', danger: true })
+      : await confirmBox(`${p.members[uid]?.nombre} deja de ser miembro de la party.`, { title: 'Expulsar', ok: 'Expulsar', danger: true })
+    if (!ok) return
     try {
       await updateDoc(pref, {
         memberIds: arrayRemove(uid),
@@ -100,18 +129,19 @@ export default function Party({ id, user, onBack }) {
         ...(p.masterId === uid ? { masterId: null } : {}),
       })
       if (uid === me) onBack()
-    } catch (e) { alert('Expulsar: ' + e.code) }
+    } catch (e) { err('Expulsar')(e) }
   }
 
   const removeParty = async () => {
-    if (!window.confirm(`¿Borrar la party "${p.nombre}" y todos sus mapas? No se puede deshacer.`)) return
+    if (!(await confirmBox(`Se borra "${p.nombre}" con todos sus mapas. No se puede deshacer.`,
+      { title: 'Borrar party', ok: 'Borrar', danger: true }))) return
     try {
       await Promise.all(maps.map((m) => deleteDoc(doc(mapsCol, m.id))))
       await deleteDoc(rref)
       await deleteDoc(doc(db, 'invites', p.inviteCode))
       await deleteDoc(pref)
       onBack()
-    } catch (e) { alert('Borrar: ' + e.code) }
+    } catch (e) { err('Borrar')(e) }
   }
 
   const newLink = () => {
@@ -121,50 +151,97 @@ export default function Party({ id, user, onBack }) {
     b.set(doc(db, 'invites', code),
       { partyId: id, ownerId: me, nombre: p.nombre, creador: p.members[me]?.nombre })
     b.update(pref, { inviteCode: code })
-    b.commit().then(() => alert('El link anterior ya no sirve. Copiá el nuevo.'), err('Link'))
+    b.commit().then(() => alertBox('El link anterior ya no sirve. Usá "Invitar" para copiar el nuevo.'), err('Link'))
+  }
+
+  const inviteLink = `${location.origin}${location.pathname}?party=${id}&inv=${p.inviteCode}`
+  const invite = async () => {
+    try {
+      await navigator.clipboard.writeText(inviteLink)
+      alertBox('Link copiado. Pasáselo a quien quieras invitar.')
+    } catch {
+      promptBox('Copiá el link', { title: 'Link de invitación', value: inviteLink, ok: 'Cerrar' })
+    }
+  }
+
+  const manage = async () => {
+    const v = await choose('Gestionar party',
+      'Regenerar link: el link anterior deja de funcionar.\nBorrar party: borra la party y todos sus mapas.',
+      [
+        { label: 'Regenerar link de invitación', value: 'link', kind: 'secondary' },
+        { label: 'Borrar party', value: 'del', kind: 'danger' },
+        { label: 'Cerrar', value: false, kind: 'ghost' },
+      ])
+    if (v === 'link') newLink()
+    if (v === 'del') removeParty()
+  }
+
+  const memberMenu = async (uid) => {
+    const v = await choose(p.members[uid]?.nombre, null, [
+      { label: 'Expulsar de la party', value: 'kick', kind: 'danger' },
+      { label: 'Cerrar', value: false, kind: 'ghost' },
+    ])
+    if (v === 'kick') expel(uid)
   }
 
   const start = async (m) => {
-    if (live && !window.confirm('Ya hay una sesión en juego. ¿Reemplazarla?')) return
+    if (live && !(await confirmBox('Ya hay una sesión en juego. ¿Reemplazarla?', { title: 'Abrir mapa', ok: 'Reemplazar', danger: true }))) return
     const { id: mapId, nombre, actualizado, players, ...d } = m
     try {
       await setDoc(rref, { ...d, order: d.order ?? [], abierta: false, master: me, claims: {} })
       await updateDoc(pref, { sesion: { estado: 'jugando', mapId, mapa: nombre } })
       setInRoom(true)
-    } catch (e) { alert('Abrir: ' + e.code) }
+    } catch (e) { err('Abrir')(e) }
   }
 
-  const save = () => {
-    if (!window.confirm(`¿Sobrescribir "${p.sesion.mapa}" con el estado actual?`)) return
-    updateDoc(doc(mapsCol, p.sesion.mapId), snap(room)).then(() => alert('Guardado'), err('Guardar'))
+  const save = async () => {
+    if (!(await confirmBox(`Se sobrescribe "${p.sesion.mapa}" con el estado actual.`, { title: 'Guardar', ok: 'Guardar' }))) return
+    updateDoc(doc(mapsCol, p.sesion.mapId), snap(room)).then(() => alertBox('Guardado'), err('Guardar'))
   }
-  const saveAs = () => {
-    const n = window.prompt('Nombre del mapa')?.trim()
-    if (n) addDoc(mapsCol, { nombre: n, ...snap(room) }).then(() => alert('Guardado'), err('Guardar'))
+  const saveAs = async () => {
+    const n = (await promptBox('Nombre del mapa', { title: 'Guardar como', ok: 'Guardar' }))?.trim()
+    if (n) addDoc(mapsCol, { nombre: n, ...snap(room) }).then(() => alertBox('Guardado'), err('Guardar'))
   }
   const end = async () => {
+    const v = await choose('Terminar sesión', `¿Guardar los cambios en "${p.sesion.mapa}" antes de terminar?`, [
+      { label: 'Guardar y terminar', value: 'save', kind: 'primary' },
+      { label: 'Terminar sin guardar', value: 'discard', kind: 'danger' },
+      { label: 'Cancelar', value: false, kind: 'ghost' },
+    ])
+    if (!v) return
     try {
-      if (window.confirm(`¿Guardar los cambios en "${p.sesion.mapa}" antes de terminar?`)) {
-        await updateDoc(doc(mapsCol, p.sesion.mapId), snap(room))
-      } else if (!window.confirm('¿Terminar sin guardar? Se pierden los cambios')) return
+      if (v === 'save') await updateDoc(doc(mapsCol, p.sesion.mapId), snap(room))
       await deleteDoc(rref)
       await updateDoc(pref, { sesion: { estado: 'lobby', mapId: null } })
-    } catch (e) { alert('Terminar: ' + e.code) }
+    } catch (e) { err('Terminar')(e) }
   }
 
-  const create = () => {
-    const nombre = name.trim()
-    if (!nombre) return
-    setName('')
-    addDoc(mapsCol, { nombre, actualizado: Date.now(), ...emptyMap() }).catch(err('Crear'))
+  const create = async () => {
+    const nombre = (await promptBox('Nombre del mapa', { title: 'Nuevo mapa', ok: 'Crear' }))?.trim()
+    if (nombre) addDoc(mapsCol, { nombre, actualizado: Date.now(), ...emptyMap() }).catch(err('Crear'))
   }
-  const rename = (m) => {
-    const n = window.prompt('Nombre', m.nombre)?.trim()
-    if (n) updateDoc(doc(mapsCol, m.id), { nombre: n, actualizado: Date.now() })
+  const rename = async (m) => {
+    const n = (await promptBox('', { title: 'Renombrar', value: m.nombre, ok: 'Guardar' }))?.trim()
+    if (n) updateDoc(doc(mapsCol, m.id), { nombre: n, actualizado: Date.now() }).catch(err('Renombrar'))
   }
   const duplicate = ({ id: _id, ...m }) =>
-    addDoc(mapsCol, { ...m, nombre: m.nombre + ' (copia)', actualizado: Date.now() })
-  const remove = (m) => window.confirm(`¿Borrar "${m.nombre}"?`) && deleteDoc(doc(mapsCol, m.id))
+    addDoc(mapsCol, { ...m, nombre: m.nombre + ' (copia)', actualizado: Date.now() }).catch(err('Duplicar'))
+  const remove = async (m) => {
+    if (await confirmBox(`Se borra "${m.nombre}".`, { title: 'Borrar mapa', ok: 'Borrar', danger: true })) {
+      deleteDoc(doc(mapsCol, m.id)).catch(err('Borrar'))
+    }
+  }
+  const mapMenu = async (m) => {
+    const v = await choose(m.nombre, null, [
+      { label: 'Renombrar', value: 'ren', kind: 'secondary' },
+      { label: 'Duplicar', value: 'dup', kind: 'secondary' },
+      { label: 'Borrar mapa', value: 'del', kind: 'danger' },
+      { label: 'Cerrar', value: false, kind: 'ghost' },
+    ])
+    if (v === 'ren') rename(m)
+    if (v === 'dup') duplicate(m)
+    if (v === 'del') remove(m)
+  }
 
   if (inRoom && room) {
     return (
@@ -189,73 +266,113 @@ export default function Party({ id, user, onBack }) {
     )
   }
 
-  const inviteLink = `${location.origin}${location.pathname}?party=${id}&inv=${p.inviteCode}`
+  const masterName = p.members[p.masterId]?.nombre
+  const members = Object.entries(p.members)
+    .sort(([a], [b]) => (b === p.ownerId) - (a === p.ownerId))
+  const sorted = [...maps].sort((a, b) => a.nombre.localeCompare(b.nombre))
 
   return (
-    <main className="app lobby">
-      <header className="top"><h1>{p.nombre}</h1></header>
-      {back}
+    <main className="ui-page">
+      <div className="ui-screen ui-top" style={{ gap: 28 }}>
+        <header className="ui-bar" style={{ justifyContent: 'flex-start', gap: 8 }}>
+          {backBtn}
+          <h1 className="ui-h1 pt-title">{p.nombre}</h1>
+          {isOwner && <button className="pt-icon" aria-label="Gestionar party" onClick={manage}><Dots /></button>}
+          <Account user={user} reset={onBack} />
+        </header>
 
-      <h2>Sesión</h2>
-      {live ? (
-        <button className="tool" onClick={() => setInRoom(true)}>Entrar a la sala · {p.sesion.mapa}</button>
-      ) : <p>En espera</p>}
-
-      <h2>Miembros ({p.memberIds.length}/{p.max})</h2>
-      {Object.entries(p.members).map(([uid, m]) => (
-        <div className="tools" key={uid}>
-          <span>
-            {m.nombre}{uid === p.ownerId ? ' · creador' : ''}{uid === p.masterId ? ' · master' : ''}
-          </span>
-          {isOwner && uid !== me && <button className="tool" onClick={() => expel(uid)}>Expulsar</button>}
-          {!isOwner && uid === me && <button className="tool" onClick={() => expel(uid)}>Abandonar</button>}
-        </div>
-      ))}
-      {isOwner && (
-        <div className="tools">
-          <button className="tool" onClick={() =>
-            navigator.clipboard.writeText(inviteLink).then(
-              () => alert('Link copiado'),
-              () => window.prompt('Copiá el link', inviteLink))}>
-            Copiar link de invitación
-          </button>
-          <button className="tool" onClick={newLink}>Regenerar link</button>
-        </div>
-      )}
-
-      {isMaster ? (
-        <button className="tool" onClick={() => setMaster(null)}>Soltar master</button>
-      ) : (
-        <button className="tool"
-          onClick={() => (!p.masterId || window.confirm('¿Forzar master?')) && setMaster(me)}>
-          {p.masterId ? 'Forzar master' : 'Tomar master'}
-        </button>
-      )}
-
-      <h2>Mapas</h2>
-      {[...maps].sort((a, b) => a.nombre.localeCompare(b.nombre)).map((m) => (
-        <div key={m.id}>
-          <div className="tools">
-            <span>{m.nombre}</span>
-            {isMaster && <button className="tool" onClick={() => start(m)}>Abrir</button>}
-            <button className="tool" onClick={() => setOpen(open === m.id ? '' : m.id)}>⋯</button>
+        <section className={`pt-session${live ? ' pt-live' : ''}`}>
+          <div className="ui-stack ui-gap-sm" style={{ gap: 6 }}>
+            <span className="pt-label">
+              {live && <span className="ui-dot" />}{live ? 'Sesión en juego' : 'Sesión'}
+            </span>
+            <h2 className="ui-h2">{live ? p.sesion.mapa : 'Sin sesión abierta'}</h2>
+            {!live && (
+              <p className="ui-sub" style={{ fontSize: 14 }}>
+                {isMaster ? 'Elegí un mapa y tocá Abrir para empezar.' : 'Esperando que el master abra un mapa.'}
+              </p>
+            )}
           </div>
-          {open === m.id && (
-            <div className="tools">
-              <button className="tool" onClick={() => rename(m)}>Renombrar</button>
-              <button className="tool" onClick={() => duplicate(m)}>Duplicar</button>
-              <button className="tool" onClick={() => remove(m)}>Borrar</button>
+          {live && <button className="ui-btn ui-btn-primary" onClick={() => setInRoom(true)}>Entrar a la sala</button>}
+          <div className="pt-sep" />
+          <div className="pt-master">
+            <span className="pt-crown"><Crown /></span>
+            <div className="ui-card-main" style={{ gap: 1 }}>
+              <span className="ui-acc-kind">Master</span>
+              <span style={{ fontSize: 16, fontWeight: 600 }}>
+                {masterName ? masterName + (isMaster ? ' (vos)' : '') : 'Nadie'}
+              </span>
             </div>
-          )}
-        </div>
-      ))}
-      <div className="tools">
-        <input className="room-input" placeholder="Nombre del mapa" value={name}
-          onChange={(e) => setName(e.target.value)} />
-        <button className="tool" disabled={!name.trim()} onClick={create}>Nuevo mapa</button>
-      </div>
+            {isMaster
+              ? <button className="pt-mini" onClick={() => setMaster(null)}>Soltar</button>
+              : <button className="pt-mini" onClick={takeMaster}>{p.masterId ? 'Forzar' : 'Tomar'}</button>}
+          </div>
+        </section>
 
-      {isOwner && <button className="tool" onClick={removeParty}>Borrar party</button>}
+        <section className="pt-sec">
+          <h2 className="pt-h">Miembros <small>{p.memberIds.length} de {p.max}</small></h2>
+          <div className="pt-members">
+            {members.map(([uid, m]) => {
+              const T = isOwner && uid !== me ? 'button' : 'div'
+              const master = uid === p.masterId
+              return (
+                <T key={uid} className="pt-m" {...(T === 'button' ? { onClick: () => memberMenu(uid) } : {})}>
+                  <span className={`pt-av${master ? ' pt-av-master' : ''}`}
+                    style={{ background: master ? 'var(--ui-gold)' : hue(uid) }}>
+                    {(m.nombre || '?')[0].toUpperCase()}
+                    {master && <span className="pt-badge"><Crown size={12} color="#e0a64a" /></span>}
+                  </span>
+                  <span className="pt-name">{m.nombre}{uid === me ? ' (vos)' : ''}</span>
+                  {uid === p.ownerId && <span className="pt-tag">creador</span>}
+                </T>
+              )
+            })}
+            {isOwner && (
+              <button className="pt-m" aria-label="Invitar" onClick={invite} style={{ color: 'var(--ui-gold)', cursor: 'pointer' }}>
+                <span className="pt-av pt-add"><Plus color="#e0a64a" /></span>
+                <span className="pt-name">Invitar</span>
+              </button>
+            )}
+          </div>
+        </section>
+
+        <section className="pt-sec">
+          <h2 className="pt-h">Mapas <small>{maps.length}</small></h2>
+          <div className="pt-maps">
+            {sorted.map((m) => (
+              <div className="pt-tile" key={m.id}>
+                <div className="pt-grid" />
+                <div className="pt-tile-body">
+                  {isMaster ? (
+                    <>
+                      <span className="pt-tile-name">{m.nombre}</span>
+                      <div className="pt-tile-row">
+                        <button className="pt-open" onClick={() => start(m)}>Abrir</button>
+                        <button className="pt-more" aria-label="Más acciones" onClick={() => mapMenu(m)}><Dots /></button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="pt-tile-row">
+                      <span className="pt-tile-name">{m.nombre}</span>
+                      <button className="pt-more" aria-label="Más acciones" onClick={() => mapMenu(m)}><Dots /></button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            <button className="pt-new" onClick={create}>
+              <Plus size={28} color="#a8a296" />
+              Nuevo mapa
+            </button>
+          </div>
+        </section>
+
+        {!isOwner && (
+          <div className="ui-foot">
+            <button className="ui-link" style={{ color: 'var(--ui-danger)' }} onClick={() => expel(me)}>Abandonar party</button>
+          </div>
+        )}
+      </div>
     </main>
   )
 }
