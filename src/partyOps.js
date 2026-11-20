@@ -25,38 +25,34 @@ export const deleteParty = (partyId, inviteCode, mapRefs) => commitOps([
 ])
 
 // ── Master ───────────────────────────────────────────────────────────────────
-// Siempre hay a lo sumo un master. El dato que manda es parties/{id}.masterId; la sala
-// (rooms/{id}.master) se actualiza en la MISMA transacción, y cada transacción lee el
-// estado actual del servidor, así dos personas apretando a la vez no pueden quedar
-// las dos como master ni dejar party y sala apuntando a personas distintas.
+// Siempre hay a lo sumo un master. El único dato que manda es parties/{id}.masterId (la
+// pantalla de la sala también lo toma de ahí). Cada transacción lee el estado actual del
+// servidor antes de escribir, así dos personas apretando a la vez no pueden quedar las dos
+// como master. Estas operaciones NO tocan la sala: las reglas de Firestore evalúan quién es
+// master con el valor de ANTES de la escritura, y rooms/{id}.master solo se escribe al abrir.
 
 // Toma el master. Si ya hay otro falla ('master-ocupado'), salvo que force sea true.
 export const claimMaster = (partyId, uid, force = false) =>
   runTransaction(db, async (tx) => {
     const p = await tx.get(partyRef(partyId))
-    const r = await tx.get(roomRef(partyId))
     if (!p.exists() || !p.data().memberIds?.includes(uid)) throw fail('no-miembro')
     const current = p.data().masterId
     if (current && current !== uid && !force) throw fail('master-ocupado')
     tx.update(partyRef(partyId), { masterId: uid })
-    if (r.exists()) tx.update(roomRef(partyId), { master: uid })
   })
 
 // Suelta el master (solo si todavía es de uid)
 export const releaseMaster = (partyId, uid) =>
   runTransaction(db, async (tx) => {
     const p = await tx.get(partyRef(partyId))
-    const r = await tx.get(roomRef(partyId))
     if (!p.exists() || p.data().masterId !== uid) return
     tx.update(partyRef(partyId), { masterId: null })
-    if (r.exists()) tx.update(roomRef(partyId), { master: null })
   })
 
 // Saca a un miembro (expulsión o abandono). Si era el master, deja libre el puesto.
 export const removeMember = (partyId, uid) =>
   runTransaction(db, async (tx) => {
     const p = await tx.get(partyRef(partyId))
-    const r = await tx.get(roomRef(partyId))
     if (!p.exists()) return
     const wasMaster = p.data().masterId === uid
     tx.update(partyRef(partyId), {
@@ -64,7 +60,6 @@ export const removeMember = (partyId, uid) =>
       ['members.' + uid]: deleteField(),
       ...(wasMaster ? { masterId: null } : {}),
     })
-    if (wasMaster && r.exists()) tx.update(roomRef(partyId), { master: null })
   })
 
 // ── Sesión ───────────────────────────────────────────────────────────────────
