@@ -216,18 +216,27 @@ export default function Party({ id, user, onBack }) {
   }
   const duplicate = ({ id: _id, ...m }) =>
     addDoc(mapsCol, { ...m, nombre: m.nombre + ' (copia)', actualizado: Date.now() }).catch(err('Duplicar'))
+    // El mapa que se está jugando no se puede borrar mientras la sesión esté abierta
+  const playingId = live ? p.sesion.mapId : null
   const remove = async (m) => {
+    if (m.id === playingId) {
+      alertBox('Terminá la sesión para poder borrarlo.', 'Mapa en juego')
+      return
+    }
     if (await confirmBox(`Se borra "${m.nombre}".`, { title: 'Borrar mapa', ok: 'Borrar', danger: true })) {
       deleteDoc(doc(mapsCol, m.id)).catch(err('Borrar'))
     }
   }
   const mapMenu = async (m) => {
-    const v = await choose(m.nombre, null, [
-      { label: 'Renombrar', value: 'ren', kind: 'secondary' },
-      { label: 'Duplicar', value: 'dup', kind: 'secondary' },
-      { label: 'Borrar mapa', value: 'del', kind: 'danger' },
-      { label: 'Cerrar', value: false, kind: 'ghost' },
-    ])
+    const playing = m.id === playingId
+    const v = await choose(m.nombre,
+      playing ? 'Este mapa se está jugando: terminá la sesión para poder borrarlo.' : null,
+      [
+        { label: 'Renombrar', value: 'ren', kind: 'secondary' },
+        { label: 'Duplicar', value: 'dup', kind: 'secondary' },
+        ...(playing ? [] : [{ label: 'Borrar mapa', value: 'del', kind: 'danger' }]),
+        { label: 'Cerrar', value: false, kind: 'ghost' },
+      ])
     if (v === 'ren') rename(m)
     if (v === 'dup') duplicate(m)
     if (v === 'del') remove(m)

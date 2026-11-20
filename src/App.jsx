@@ -11,6 +11,7 @@ import { fromDoc, diff } from './roomData'
 import './App.css'
 import './room.css'
 import './edges.css'
+import './terrains-extra.css'
 import './sala.css'
 
 const GRID_SIZES = [6, 8, 10, 12, 14, 16, 18, 20, 22, 24]
